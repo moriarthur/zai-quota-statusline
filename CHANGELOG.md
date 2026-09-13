@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.6 — 2026-09-14
+Fix the fetch lock's mutual exclusion (third audit pass). The 0.1.5
+timestamp-named lock let processes starting in different seconds fetch in
+parallel — the mutex identity was broken. The lock is now a fixed-name
+directory holding the holder's PID: contenders skip while that PID is
+alive and reclaim when it is gone (a brief re-check covers the
+claim/stamp window of a crashed claim). Legacy lock formats are absorbed
+by the same path. Regression tests cover the three behaviors that matter:
+a live lock skips, a dead lock is reclaimed, concurrent starts fetch
+exactly once.
+
 ## 0.1.5 — 2026-09-14
 Second-pass audit fixes. Model names coming from the
 `ANTHROPIC_DEFAULT_*_MODEL` mapping and settings env blocks now pass the

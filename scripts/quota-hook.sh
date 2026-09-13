@@ -39,27 +39,34 @@ logsize=0
 
 now=$(date +%s)
 
-# cross-session single-fetch guarantee: mkdir is atomic on every platform.
-# The creation timestamp is part of the lock NAME — no separate ts file, so
-# there is no race between claiming the lock and stamping it. A lock older
-# than 40s (2x the longest bounded fetch) belongs to a crashed process and
-# is reclaimed.
-rm -rf "$DIR/.fetch.lock"   # migrate pre-0.1.5 locks (file or ts-dir)
-LOCKBASE="$DIR/.fetch"
-lockdir="$LOCKBASE.lock.$now"
-if ! mkdir "$lockdir" 2>/dev/null; then
-  for d in "$LOCKBASE".lock.*; do
-    [ -d "$d" ] || continue
-    ts=${d##*.}
-    case $ts in ''|*[!0-9]*) continue ;; esac
-    [ $(( now - ts )) -gt 40 ] && rm -rf "$d"
-  done
-  if ! mkdir "$lockdir" 2>/dev/null; then
+# Cross-session single-fetch guarantee: the lock is a FIXED-NAME directory
+# (mkdir is atomic everywhere), so every process competes for the same
+# identity. It holds the holder's PID: a contender skips while that PID is
+# alive and reclaims when it is gone. A lock without a PID means we raced
+# the holder's stamping — re-check briefly, then treat as a crashed claim.
+LOCK="$DIR/.fetch.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  holder=$(cat "$LOCK/pid" 2>/dev/null || true)
+  if [ -z "$holder" ]; then
+    for _ in 1 2 3 4 5 6; do
+      sleep 0.05
+      holder=$(cat "$LOCK/pid" 2>/dev/null || true)
+      [ -n "$holder" ] && break
+    done
+  fi
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
+    exit 0
+  fi
+  # no live holder: a crashed claim (or a pre-0.1.6 lock format) — reclaim
+  rm -rf "$LOCK"
+  if ! mkdir "$LOCK" 2>/dev/null; then
     echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
     exit 0
   fi
 fi
-trap 'rm -rf "$lockdir"' EXIT   # release on every exit path once held
+printf '%s\n' "$$" >"$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT   # release on every exit path once held
 
 last=0 src=""
 [ -f "$STATE" ] && IFS='|' read -r last src <"$STATE"
