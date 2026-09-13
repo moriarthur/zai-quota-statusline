@@ -59,15 +59,18 @@ tier_model() { # $1=var name $2=fallback if unmapped
   printf '%s' "${v:-$2}"
 }
 model=$(jq -r '.model.display_name // .model.id // empty' <<<"$IN" 2>/dev/null \
-  | sed -E $'s/\033\\[[0-9;]*[A-Za-z]//g' \
-  | tr -d '[:cntrl:]' | cut -c1-40)   # no escape injection, no runaway pill width
+  | sed -E 's/\[[0-9]+m\]$//')
 case "$model" in
   *[Oo]pus*)   model=$(tier_model ANTHROPIC_DEFAULT_OPUS_MODEL "$model") ;;
   *[Ss]onnet*) model=$(tier_model ANTHROPIC_DEFAULT_SONNET_MODEL "$model") ;;
   *[Hh]aiku*)  model=$(tier_model ANTHROPIC_DEFAULT_HAIKU_MODEL "$model") ;;
 esac
 model=${model:-Claude}   # jq failed on empty/malformed stdin — keep the pill labeled
-model=$(printf '%s' "$model" | sed -E 's/^glm/GLM/I; s/-flash/-Flash/I; s/-air/-Air/I')
+# sanitize LAST: both display_name and the tier_model mapping feed the pill
+model=$(printf '%s' "$model" \
+  | sed -E $'s/\033\\[[0-9;]*[A-Za-z]//g' \
+  | tr -d '[:cntrl:]' | cut -c1-40 \
+  | sed -E 's/^glm/GLM/I; s/-flash/-Flash/I; s/-air/-Air/I')
 
 # ---- quotas ----
 h5p=0 h5r=0 wp=0 wr=0 fetched=0
@@ -142,7 +145,7 @@ if [ -n "$ctxp" ]; then
 fi
 cost=$(jq -r '.cost.total_cost_usd // empty' <<<"$IN" 2>/dev/null)
 if [ -n "$cost" ]; then
-  case "$cost" in ''|*[!0-9.]*) cost=0 ;; esac   # printf %.2f hates garbage
+  [[ "$cost" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || cost=0   # a real decimal, or nothing
   [ -n "$extra" ] && extra+=" ${c_dim}·${c_r} "   # same dim separator style as the quota segments
   extra+=$(printf '%s$%.2f%s' "$c_dim" "$cost" "$c_r")
 fi

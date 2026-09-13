@@ -26,7 +26,6 @@ EV="${1:-pre}"
 case "$EV" in pre|post|session) ;; *) exit 0 ;; esac
 
 STATE="$DIR/.hook-state"
-LOCK="$DIR/.fetch.lock"
 LOG="$DIR/hook.log"
 WINDOW=${ZAI_HOOK_DEDUP_SEC:-8}
 
@@ -41,24 +40,26 @@ logsize=0
 now=$(date +%s)
 
 # cross-session single-fetch guarantee: mkdir is atomic on every platform.
-# A timestamp inside the lock lets a crashed fetch's lock be reclaimed after
-# 40s (2x the longest bounded fetch).
-if [ -e "$LOCK" ] && [ ! -d "$LOCK" ]; then rm -f "$LOCK"; fi   # migrate old file lock
-if ! mkdir "$LOCK" 2>/dev/null; then
-  lockts=$(cat "$LOCK/ts" 2>/dev/null || echo 0)
-  if [ $(( now - ${lockts:-0} )) -gt 40 ]; then
-    rm -rf "$LOCK"
-    if ! mkdir "$LOCK" 2>/dev/null; then
-      echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
-      exit 0
-    fi
-  else
+# The creation timestamp is part of the lock NAME — no separate ts file, so
+# there is no race between claiming the lock and stamping it. A lock older
+# than 40s (2x the longest bounded fetch) belongs to a crashed process and
+# is reclaimed.
+rm -rf "$DIR/.fetch.lock"   # migrate pre-0.1.5 locks (file or ts-dir)
+LOCKBASE="$DIR/.fetch"
+lockdir="$LOCKBASE.lock.$now"
+if ! mkdir "$lockdir" 2>/dev/null; then
+  for d in "$LOCKBASE".lock.*; do
+    [ -d "$d" ] || continue
+    ts=${d##*.}
+    case $ts in ''|*[!0-9]*) continue ;; esac
+    [ $(( now - ts )) -gt 40 ] && rm -rf "$d"
+  done
+  if ! mkdir "$lockdir" 2>/dev/null; then
     echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
     exit 0
   fi
 fi
-printf '%s\n' "$now" >"$LOCK/ts"
-trap 'rm -rf "$LOCK"' EXIT   # release on every exit path once held
+trap 'rm -rf "$lockdir"' EXIT   # release on every exit path once held
 
 last=0 src=""
 [ -f "$STATE" ] && IFS='|' read -r last src <"$STATE"

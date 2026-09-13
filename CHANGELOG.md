@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5 — 2026-09-14
+Second-pass audit fixes. Model names coming from the
+`ANTHROPIC_DEFAULT_*_MODEL` mapping and settings env blocks now pass the
+same ANSI/control filters as display names (sanitization runs last).
+Malformed decimal costs ("1..2") no longer reach printf. The fetch lock
+carries its creation timestamp in the directory name, closing the reclaim
+race between lock creation and timestamp write; pre-0.1.5 locks are
+migrated on first run. The junk-200 fixture test skips cleanly when the
+environment cannot bind a test server.
+
 ## 0.1.4 — 2026-09-14
 Robustness hardening after an external audit. `config.env` is parsed, never
 sourced — a tampered file cannot execute code; it must be a regular file
