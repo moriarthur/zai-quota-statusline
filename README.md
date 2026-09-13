@@ -10,6 +10,10 @@ brand palette (green → orange → red; exact hexes on truecolor terminals), co
 session cost — visible in real time, with no manual refresh requests and no browser
 dashboard.
 
+```
+ ● GLM-5.3-Flash | 5h ━━━━━━──── 60% 36d2h · 7d ━━━━━━━─── 77% 43d3h · context left 38% · $5.10
+```
+
 ## How it works
 
 ```

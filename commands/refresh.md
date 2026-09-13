@@ -5,4 +5,4 @@ allowed-tools: Bash(bash $HOME/.claude/zaiquota/quota-fetch.sh --force)
 
 !`bash $HOME/.claude/zaiquota/quota-fetch.sh --force`
 
-Report the result in one short line. If the fetch failed, include the error output and remind the user to check `$HOME/.claude/zaiquota/config.env`.
+Reply with the command output above only — one line, no analysis. If it contains "ERROR", append one hint: check `~/.claude/zaiquota/config.env`.
