@@ -1,5 +1,7 @@
 # zai-quota-statusline
 
+[![CI](https://github.com/moriarthur/zai-quota-statusline/actions/workflows/ci.yml/badge.svg)](https://github.com/moriarthur/zai-quota-statusline/actions/workflows/ci.yml)
+
 Event-driven Z.AI / GLM quota monitoring for [Claude Code](https://claude.com/claude-code) —
 **no cron, no fixed timers, no polling**. The quota cache refreshes the moment you submit a
 prompt and again when the turn finishes, so the statusline always shows fresh numbers.
