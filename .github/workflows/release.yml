@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tag version must match plugin.json
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          J=$(jq -r .version .claude-plugin/plugin.json)
+          if [ "$V" != "$J" ]; then
+            echo "tag $GITHUB_REF_NAME does not match plugin.json version $J" >&2
+            exit 1
+          fi
+
+      - name: Create GitHub Release with CHANGELOG notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk -v pat "^## $V" '$0 ~ pat {f=1; next} /^## /{f=0} f' CHANGELOG.md)
+          [ -n "$NOTES" ] || NOTES="See CHANGELOG.md for details."
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$NOTES"
