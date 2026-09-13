@@ -32,9 +32,8 @@ per prompt/turn cycle, nothing in between.
 ## Requirements
 
 - `bash` 3.2+, `jq`, `curl` — stock on Linux and WSL; on macOS `brew install jq`
-- `flock` (util-linux) is **optional**: without it the dedup window alone guards
-  against double-fetches
-- Linux, WSL and macOS are supported; on Windows use WSL
+- No platform-specific locking tools: the fetch lock is an atomic `mkdir`, so
+  Linux, WSL and macOS behave identically; on Windows use WSL
 
 ## Install (plugin)
 
@@ -116,18 +115,24 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 |---|---|
 | `hooks/hooks.json` | Plugin hook registration (session-start sync + event-driven refresh) |
 | `commands/refresh.md` | `/zai-quota:refresh` — force one fetch from the CLI |
-| `scripts/quota-fetch.sh` | Single GET to the Z.AI usage endpoint, atomic cache write |
-| `scripts/quota-hook.sh` | Hook wrapper: async-safe, `flock`, event-aware dedup, log + rotation |
+| `scripts/quota-fetch.sh` | Single GET to the Z.AI usage endpoint, response-shape validation, atomic cache write |
+| `scripts/quota-hook.sh` | Hook wrapper: async-safe, atomic lock, event-aware dedup, log + rotation |
 | `scripts/zai-statusline.sh` | Statusline renderer: model chip, 5h/7d bars, context-left, cost |
 
 ## Security
 
 - The token lives only in `~/.claude/zaiquota/config.env` — create it with `chmod 600`
   (the install steps above do this). It is read by `quota-fetch.sh` and nothing else.
+- `config.env` is **parsed, never executed** (plain `KEY=VALUE` lines): a tampered file
+  cannot run code. It must be a regular file owned by you, and its permissions are
+  tightened to `0600` automatically on every fetch.
 - The token is sent **only** to your configured base URL and **only over https** — a
-  plain-http base URL is refused with an error.
-- The statusline renders from the local cache only: no network access, and the token is
-  never part of its output.
+  plain-http base URL is refused with an error (loopback addresses excepted, for local
+  testing).
+- A HTTP 200 is validated against the expected response shape (`data.limits` array)
+  before it can replace the cache — proxy splash pages can't poison it.
+- The statusline renders from the local cache only: no network access; model names are
+  stripped of ANSI/control characters; the token is never part of its output.
 - `quota.cache`, `hook.log` and hook state files are created with `0600` permissions.
 - The fetch output never echoes the token; error bodies from the API are truncated.
 - Tests (`./test.sh`) strip `ANTHROPIC_*` from the environment and use dummy tokens, so

@@ -15,10 +15,31 @@ DIR="$HOME/.claude/zaiquota"
 CACHE="$DIR/quota.cache"
 MIN_INTERVAL=${ZAI_REFRESH_MIN:-600}
 
-# Credentials live in config.env (chmod 600) because cron/hooks don't inherit
-# the interactive shell environment.
-# shellcheck source=/dev/null
-[ -f "$DIR/config.env" ] && . "$DIR/config.env"
+# ---- credentials ----
+# config.env is READ, never sourced: plain KEY=VALUE lines only, so a tampered
+# file cannot execute code next to the session environment. Environment
+# variables take precedence (cron/launchd do not inherit them — hence the file).
+CFG="$DIR/config.env"
+cfg() { # $1=KEY -> value from config.env
+  local line
+  line=$(grep -E "^$1=" "$CFG" 2>/dev/null | tail -1) || return 0
+  line=${line#*=}
+  line=${line%$'\r'}
+  case "$line" in   # tolerate one layer of matching quotes
+    \"*\") line=${line#\"}; line=${line%\"} ;;
+    \'*\') line=${line#\'}; line=${line%\'} ;;
+  esac
+  printf '%s' "$line"
+}
+if [ -e "$CFG" ]; then
+  if [ ! -f "$CFG" ] || [ ! -O "$CFG" ]; then
+    echo "ERROR: $CFG must be a regular file owned by you — refusing to read it" >&2
+    exit 1
+  fi
+  chmod 600 "$CFG" 2>/dev/null || true   # self-heal overly wide permissions
+fi
+ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-$(cfg ANTHROPIC_AUTH_TOKEN)}"
+ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-$(cfg ANTHROPIC_BASE_URL)}"
 
 FORCE=0
 case "${1:-}" in -f|--force) FORCE=1 ;; esac
@@ -32,12 +53,12 @@ if [ "$FORCE" -eq 0 ] && [ -f "$CACHE" ]; then
   fi
 fi
 
-# ---- credentials ----
-if [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+# ---- credentials required ----
+if [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
   echo "ERROR: ANTHROPIC_AUTH_TOKEN is not set (add it to $DIR/config.env)" >&2
   exit 1
 fi
-if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
+if [ -z "$ANTHROPIC_BASE_URL" ]; then
   echo "ERROR: ANTHROPIC_BASE_URL is not set (add it to $DIR/config.env)" >&2
   exit 1
 fi
@@ -46,13 +67,15 @@ fi
 domain=$(printf '%s' "$ANTHROPIC_BASE_URL" | sed -E 's|(https?://[^/]+).*|\1|')
 case "$domain" in
   https://*) ;;
+  http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*) ;;
   *) echo "ERROR: ANTHROPIC_BASE_URL must be https:// — refusing to send the token in cleartext" >&2; exit 1 ;;
 esac
 url="${domain}/api/monitor/usage/quota/limit"
 
 mkdir -p "$DIR"
-tmp=$(mktemp)
-trap 'rm -f "$tmp" "${CACHE}.tmp"' EXIT   # no temp residue on any exit path
+tmp=$(mktemp "$DIR/.fetch.XXXXXX")   # unique per process: parallel fetches never collide
+out=$(mktemp "$DIR/.fetch.XXXXXX")   # same directory as the cache: rename is atomic
+trap 'rm -f "$tmp" "$out"' EXIT
 http=$(curl -sS -o "$tmp" -w '%{http_code}' \
   --max-time "${ZAI_FETCH_CURL_TIMEOUT:-20}" \
   -H "Authorization: ${ANTHROPIC_AUTH_TOKEN}" \
@@ -67,9 +90,18 @@ if [ "$http" != "200" ]; then
   exit 1
 fi
 
+# ---- validate the response shape BEFORE replacing a good cache ----
+# A 200 with a junk body (proxy splash page, empty object) must not poison it.
+if ! jq -e '(.data | type == "object") and (.data.limits | type == "array")' "$tmp" >/dev/null 2>&1; then
+  echo "ERROR: unexpected response shape (no data.limits array) — cache left untouched" >&2
+  head -c 2000 "$tmp" >&2
+  echo >&2
+  exit 1
+fi
+
 # ---- atomic cache update: fetch timestamp + the .data object ----
-jq -c --argjson ts "$(date +%s)" '{fetched_at:$ts, data:.data}' "$tmp" > "${CACHE}.tmp" \
-  && mv "${CACHE}.tmp" "$CACHE"
+jq -c --argjson ts "$(date +%s)" '{fetched_at:$ts, data:.data}' "$tmp" > "$out"
+mv -f "$out" "$CACHE"
 
 [ "$FORCE" -eq 1 ] && echo "quota cache updated -> $CACHE"
 exit 0

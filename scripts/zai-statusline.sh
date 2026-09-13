@@ -40,6 +40,10 @@ col() { # usage pct -> fg SGR params: <50 green / <80 orange / >=80 red (Claude 
   else                       printf '%s' "$C_RED"; fi
 }
 
+num() { # sanitize anything numeric-ish into a plain non-negative integer
+  case "${1:-}" in ''|*[!0-9]*) printf 0 ;; *) printf '%s' "$1" ;; esac
+}
+
 # ---- model (exact name as configured/launched) ----
 # Claude Code reports the real model in .model.display_name/.id (e.g.
 # "glm-5.3-flash[1m]" — [1m] marks the 1M-context build). When it only knows
@@ -55,7 +59,8 @@ tier_model() { # $1=var name $2=fallback if unmapped
   printf '%s' "${v:-$2}"
 }
 model=$(jq -r '.model.display_name // .model.id // empty' <<<"$IN" 2>/dev/null \
-  | sed -E 's/\[[0-9]+m\]$//')
+  | sed -E $'s/\033\\[[0-9;]*[A-Za-z]//g' \
+  | tr -d '[:cntrl:]' | cut -c1-40)   # no escape injection, no runaway pill width
 case "$model" in
   *[Oo]pus*)   model=$(tier_model ANTHROPIC_DEFAULT_OPUS_MODEL "$model") ;;
   *[Ss]onnet*) model=$(tier_model ANTHROPIC_DEFAULT_SONNET_MODEL "$model") ;;
@@ -81,6 +86,7 @@ if [ -f "$CACHE" ]; then
       | @tsv' "$CACHE" 2>/dev/null
   )
   h5p=${h5p:-0}; h5r=${h5r:-0}; wp=${wp:-0}; wr=${wr:-0}; fetched=${fetched:-0}
+  h5p=$(num "$h5p"); h5r=$(num "$h5r"); wp=$(num "$wp"); wr=$(num "$wr"); fetched=$(num "$fetched")
 fi
 
 now=$(date +%s)
@@ -127,13 +133,16 @@ extra=''
 ctxp=$(jq -r '.context_window.used_percentage // empty' <<<"$IN" 2>/dev/null)
 if [ -n "$ctxp" ]; then
   ctxp=${ctxp%.*}   # floor if float
+  ctxp=$(num "$ctxp")
   ctxl=$(jq -r '.context_window.remaining_percentage // empty' <<<"$IN" 2>/dev/null)
   if [ -n "$ctxl" ]; then ctxl=${ctxl%.*}; else ctxl=$(( 100 - ctxp )); fi
+  ctxl=$(num "$ctxl")
   ctxc=$(col "$ctxp")   # color still tracks usage; the number is what's left
   extra+=$(printf '%scontext left \033[%sm%s%%\033[39m' "$c_dim" "$ctxc" "$ctxl")
 fi
 cost=$(jq -r '.cost.total_cost_usd // empty' <<<"$IN" 2>/dev/null)
 if [ -n "$cost" ]; then
+  case "$cost" in ''|*[!0-9.]*) cost=0 ;; esac   # printf %.2f hates garbage
   [ -n "$extra" ] && extra+=" ${c_dim}·${c_r} "   # same dim separator style as the quota segments
   extra+=$(printf '%s$%.2f%s' "$c_dim" "$cost" "$c_r")
 fi

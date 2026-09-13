@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.4 — 2026-09-14
+Robustness hardening after an external audit. `config.env` is parsed, never
+sourced — a tampered file cannot execute code; it must be a regular file
+owned by the user and its permissions are auto-tightened to 0600. A junk
+HTTP 200 is rejected by response-shape validation (`data.limits` array)
+before it can replace a good cache. The statusline strips ANSI/control
+characters from model names, caps their width, and sanitizes non-numeric
+values instead of emitting shell errors. The fetch lock is now an atomic
+`mkdir` with stale-lock reclaim (portable, replaces flock), and temp files
+are unique per process, renamed into place atomically. test.sh is
+shellcheck-clean and covers the new behavior with offline regression tests
+(including a local HTTP fixture server).
+
 ## 0.1.3 — 2026-09-14
 macOS compatibility. `flock`, `stat -c%s` and `timeout` are GNU/util-linux
 tools missing on stock macOS: the hook now degrades gracefully without flock
@@ -7,8 +20,6 @@ tools missing on stock macOS: the hook now degrades gracefully without flock
 `wc -c`, and runs the fetch without the timeout wrapper when it is absent
 (`curl --max-time` already bounds the network part). README documents
 requirements and platform support.
-
-## 0.1.2 — 2026-09-14
 
 ## 0.1.2 — 2026-09-14
 Security hardening. The fetcher refuses plain-http base URLs (the token never

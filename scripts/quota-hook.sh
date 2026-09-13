@@ -6,8 +6,9 @@
 #   quota-hook.sh session  <- SessionStart    (startup/resume/clear)
 #
 # Registered in ~/.claude/settings.json with "async": true, so Claude Code runs
-# it in the background and it never blocks prompt processing. flock guarantees
-# at most one fetch at a time across ALL sessions.
+# it in the background and it never blocks prompt processing. An atomic
+# mkdir-based lock guarantees at most one fetch at a time across ALL sessions,
+# on every platform (flock is not available everywhere).
 #
 # Event-aware dedup window (ZAI_HOOK_DEDUP_SEC, default 8s):
 #   - pre/session skip if ANY fetch happened within the window (a just-finished
@@ -37,17 +38,28 @@ logsize=0
 [ -f "$LOG" ] && logsize=$(wc -c <"$LOG")
 [ "$logsize" -gt 262144 ] && : > "$LOG"
 
-# cross-session single-fetch guarantee. flock is util-linux and absent on stock
-# macOS — degrade to the dedup window alone rather than never fetching there.
-if command -v flock >/dev/null 2>&1; then
-  exec 9>"$LOCK"
-  if ! flock -n 9; then
+now=$(date +%s)
+
+# cross-session single-fetch guarantee: mkdir is atomic on every platform.
+# A timestamp inside the lock lets a crashed fetch's lock be reclaimed after
+# 40s (2x the longest bounded fetch).
+if [ -e "$LOCK" ] && [ ! -d "$LOCK" ]; then rm -f "$LOCK"; fi   # migrate old file lock
+if ! mkdir "$LOCK" 2>/dev/null; then
+  lockts=$(cat "$LOCK/ts" 2>/dev/null || echo 0)
+  if [ $(( now - ${lockts:-0} )) -gt 40 ]; then
+    rm -rf "$LOCK"
+    if ! mkdir "$LOCK" 2>/dev/null; then
+      echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
+      exit 0
+    fi
+  else
     echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
     exit 0
   fi
 fi
+printf '%s\n' "$now" >"$LOCK/ts"
+trap 'rm -rf "$LOCK"' EXIT   # release on every exit path once held
 
-now=$(date +%s)
 last=0 src=""
 [ -f "$STATE" ] && IFS='|' read -r last src <"$STATE"
 age=$(( now - last ))
