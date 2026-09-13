@@ -1,5 +1,6 @@
 ---
 description: Refresh the Z.AI quota cache now (single fetch, no AI)
+allowed-tools: Bash(bash $HOME/.claude/zaiquota/quota-fetch.sh --force)
 ---
 
 !`bash $HOME/.claude/zaiquota/quota-fetch.sh --force`
