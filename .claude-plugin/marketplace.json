@@ -10,7 +10,7 @@
       "name": "zai-quota-statusline",
       "source": ".",
       "description": "Native-feeling Z.AI / GLM quota statusline for Claude Code — event-driven hooks, no cron, no polling.",
-      "version": "0.1.0"
+      "version": "0.1.1"
     }
   ]
 }
