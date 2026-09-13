@@ -32,13 +32,19 @@ WINDOW=${ZAI_HOOK_DEDUP_SEC:-8}
 cat >/dev/null 2>&1 || true      # drain hook stdin (tiny JSON)
 mkdir -p "$DIR"
 
-# crude log rotation
-if [ "$(stat -c%s "$LOG" 2>/dev/null || echo 0)" -gt 262144 ]; then : > "$LOG"; fi
+# crude log rotation (wc -c is portable where GNU stat -c%s is not)
+logsize=0
+[ -f "$LOG" ] && logsize=$(wc -c <"$LOG")
+[ "$logsize" -gt 262144 ] && : > "$LOG"
 
-exec 9>"$LOCK"
-if ! flock -n 9; then
-  echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
-  exit 0
+# cross-session single-fetch guarantee. flock is util-linux and absent on stock
+# macOS — degrade to the dedup window alone rather than never fetching there.
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$LOCK"
+  if ! flock -n 9; then
+    echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
+    exit 0
+  fi
 fi
 
 now=$(date +%s)
@@ -62,7 +68,17 @@ fi
 
 echo "$now|$EV" >"$STATE"
 echo "$(date '+%F %T') $EV: force fetch" >>"$LOG"
-if ! timeout "${ZAI_HOOK_FETCH_TIMEOUT:-15}" "$SCRIPT_DIR/quota-fetch.sh" --force >>"$LOG" 2>&1; then
-  echo "$(date '+%F %T') $EV: fetch FAILED" >>"$LOG"
+# timeout is GNU coreutils and absent on stock macOS; curl --max-time already
+# bounds the network part, the wrapper is only extra insurance where it exists
+fetch_failed=0
+if command -v timeout >/dev/null 2>&1; then
+  if ! timeout "${ZAI_HOOK_FETCH_TIMEOUT:-15}" "$SCRIPT_DIR/quota-fetch.sh" --force >>"$LOG" 2>&1; then
+    fetch_failed=1
+  fi
+else
+  if ! "$SCRIPT_DIR/quota-fetch.sh" --force >>"$LOG" 2>&1; then
+    fetch_failed=1
+  fi
 fi
+[ "$fetch_failed" -eq 1 ] && echo "$(date '+%F %T') $EV: fetch FAILED" >>"$LOG"
 exit 0

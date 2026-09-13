@@ -29,6 +29,13 @@ dedup window (`flock` + 8 s, tunable) collapses duplicate hook firings and paral
 sessions; the fetch itself is a single plain GET to Z.AI's plan-usage endpoint — one call
 per prompt/turn cycle, nothing in between.
 
+## Requirements
+
+- `bash` 3.2+, `jq`, `curl` — stock on Linux and WSL; on macOS `brew install jq`
+- `flock` (util-linux) is **optional**: without it the dedup window alone guards
+  against double-fetches
+- Linux, WSL and macOS are supported; on Windows use WSL
+
 ## Install (plugin)
 
 ```bash

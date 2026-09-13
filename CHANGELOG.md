@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3 — 2026-09-14
+macOS compatibility. `flock`, `stat -c%s` and `timeout` are GNU/util-linux
+tools missing on stock macOS: the hook now degrades gracefully without flock
+(the dedup window still guards double-fetches), rotates the log via
+`wc -c`, and runs the fetch without the timeout wrapper when it is absent
+(`curl --max-time` already bounds the network part). README documents
+requirements and platform support.
+
+## 0.1.2 — 2026-09-14
+
 ## 0.1.2 — 2026-09-14
 Security hardening. The fetcher refuses plain-http base URLs (the token never
 crosses the wire in cleartext); cache, log, lock and state files are created
