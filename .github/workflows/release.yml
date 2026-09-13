@@ -27,6 +27,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${GITHUB_REF_NAME#v}"
-          NOTES=$(awk -v pat "^## $V" '$0 ~ pat {f=1; next} /^## /{f=0} f' CHANGELOG.md)
+          NOTES=$(awk -v pat="^## $V" '$0 ~ pat {f=1; next} /^## /{f=0} f' CHANGELOG.md)
           [ -n "$NOTES" ] || NOTES="See CHANGELOG.md for details."
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$NOTES"
