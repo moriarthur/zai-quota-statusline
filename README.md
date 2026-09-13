@@ -97,6 +97,7 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 | `ZAI_HOOK_DEDUP_SEC` | `8` | Dedup window for hook-driven fetches |
 | `ZAI_HOOK_FETCH_TIMEOUT` | `15` | Hard timeout (s) for a single fetch |
 | `ZAI_REFRESH_MIN` | `600` | Min age (s) of the cache before a plain (non-forced) fetch re-requests |
+| `ZAI_FETCH_CURL_TIMEOUT` | `20` | Hard curl timeout (s) for a single request |
 | `ZAI_SB_SEGMENTS` | `10` | Bar length in cells |
 | `ZAI_SB_AGE` | `0` | `1` = append cache-age (`· 5m`) to the line |
 | `ZAI_SB_PLAIN` | `0` | `1` = plain glyphs, no Nerd Font required |
@@ -111,6 +112,19 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 | `scripts/quota-fetch.sh` | Single GET to the Z.AI usage endpoint, atomic cache write |
 | `scripts/quota-hook.sh` | Hook wrapper: async-safe, `flock`, event-aware dedup, log + rotation |
 | `scripts/zai-statusline.sh` | Statusline renderer: model chip, 5h/7d bars, context-left, cost |
+
+## Security
+
+- The token lives only in `~/.claude/zaiquota/config.env` — create it with `chmod 600`
+  (the install steps above do this). It is read by `quota-fetch.sh` and nothing else.
+- The token is sent **only** to your configured base URL and **only over https** — a
+  plain-http base URL is refused with an error.
+- The statusline renders from the local cache only: no network access, and the token is
+  never part of its output.
+- `quota.cache`, `hook.log` and hook state files are created with `0600` permissions.
+- The fetch output never echoes the token; error bodies from the API are truncated.
+- Tests (`./test.sh`) strip `ANTHROPIC_*` from the environment and use dummy tokens, so
+  CI logs can never capture real credentials.
 
 ## License
 

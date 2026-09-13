@@ -17,6 +17,7 @@
 #   - state is recorded BEFORE fetching: on network failure duplicates still
 #     collapse instead of hammering a failing API.
 set -u
+umask 077   # log, lock and state files are user-private by default
 
 DIR="$HOME/.claude/zaiquota"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

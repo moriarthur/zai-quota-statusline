@@ -9,6 +9,7 @@
 # into polling. --force bypasses the throttle (manual refresh, event hooks
 # that already implement their own dedup).
 set -euo pipefail
+umask 077   # cache and any temp files are user-private by default
 
 DIR="$HOME/.claude/zaiquota"
 CACHE="$DIR/quota.cache"
@@ -43,27 +44,32 @@ fi
 
 # ---- one GET to the plan-usage endpoint ----
 domain=$(printf '%s' "$ANTHROPIC_BASE_URL" | sed -E 's|(https?://[^/]+).*|\1|')
+case "$domain" in
+  https://*) ;;
+  *) echo "ERROR: ANTHROPIC_BASE_URL must be https:// — refusing to send the token in cleartext" >&2; exit 1 ;;
+esac
 url="${domain}/api/monitor/usage/quota/limit"
 
 mkdir -p "$DIR"
 tmp=$(mktemp)
+trap 'rm -f "$tmp" "${CACHE}.tmp"' EXIT   # no temp residue on any exit path
 http=$(curl -sS -o "$tmp" -w '%{http_code}' \
+  --max-time "${ZAI_FETCH_CURL_TIMEOUT:-20}" \
   -H "Authorization: ${ANTHROPIC_AUTH_TOKEN}" \
   -H "Accept-Language: en-US,en" \
   -H "Content-Type: application/json" \
-  "$url") || { echo "ERROR: request failed" >&2; rm -f "$tmp"; exit 1; }
+  "$url") || { echo "ERROR: request failed" >&2; exit 1; }
 
 if [ "$http" != "200" ]; then
   echo "ERROR: HTTP $http" >&2
-  cat "$tmp" >&2
-  rm -f "$tmp"
+  head -c 2000 "$tmp" >&2   # error body only, truncated
+  echo >&2
   exit 1
 fi
 
 # ---- atomic cache update: fetch timestamp + the .data object ----
 jq -c --argjson ts "$(date +%s)" '{fetched_at:$ts, data:.data}' "$tmp" > "${CACHE}.tmp" \
   && mv "${CACHE}.tmp" "$CACHE"
-rm -f "$tmp"
 
 [ "$FORCE" -eq 1 ] && echo "quota cache updated -> $CACHE"
 exit 0

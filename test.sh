@@ -87,6 +87,25 @@ else
 fi
 rm -rf "$TH"
 
+# ---- security: the token never travels further than the configured host ----
+TH=$(mktemp -d)
+mkdir -p "$TH/.claude/zaiquota"
+printf 'ANTHROPIC_BASE_URL=https://127.0.0.1:1/api/anthropic\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' > "$TH/.claude/zaiquota/config.env"
+out=$(env HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" != *"DUMMY_TOKEN_VALUE"* ]]; then
+  ok "security: failed fetch never echoes the token"
+else
+  bad "security: failed fetch never echoes the token (exit $rc)"
+fi
+printf 'ANTHROPIC_BASE_URL=http://localhost/api/anthropic\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' > "$TH/.claude/zaiquota/config.env"
+out=$(env HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"https://"* ]] && [[ "$out" != *"DUMMY_TOKEN_VALUE"* ]]; then
+  ok "security: plain-http base URL is refused"
+else
+  bad "security: plain-http base URL is refused (exit $rc)"
+fi
+rm -rf "$TH"
+
 # ---- hooks.json contract ----
 if grep -q '${CLAUDE_PLUGIN_ROOT}/scripts' hooks/hooks.json && grep -q '\.claude/zaiquota' hooks/hooks.json; then
   ok "hooks.json: plugin root + stable path contract"
