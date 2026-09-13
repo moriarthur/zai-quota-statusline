@@ -1,0 +1,15 @@
+{
+  "name": "moriarthur",
+  "owner": {
+    "name": "Galart",
+    "url": "https://github.com/moriarthur"
+  },
+  "plugins": [
+    {
+      "name": "zai-quota-statusline",
+      "source": ".",
+      "description": "Native-feeling Z.AI / GLM quota statusline for Claude Code — event-driven hooks, no cron, no polling.",
+      "version": "0.1.0"
+    }
+  ]
+}
