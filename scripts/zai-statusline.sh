@@ -3,8 +3,9 @@
 #
 #   <pill: dot + model> | 5h <bar> 9% 2h 39m · 7d <bar> 77% 1d 4h · context left 85% · $5.14
 #
-# Model chip uses Nerd Font rounded caps U+E0B6/U+E0B4 (ZAI_SB_PLAIN=1 renders a
-# plain "● model" chip instead). Bars are thin lines: heavy U+2501 fill (colored)
+# Model chip uses Nerd Font rounded caps U+E0B6/U+E0B4; ZAI_SB_PLAIN=1 and macOS
+# (whose terminals render those caps as replacement glyphs) get a plain
+# "● model" chip instead. Bars are thin lines: heavy U+2501 fill (colored)
 # + light U+2500 track (dim).
 # Data: model / context / cost from the statusline stdin JSON; quotas from
 # quota.cache (kept fresh by the UserPromptSubmit/Stop/SessionStart hooks).
@@ -17,6 +18,13 @@ CACHE="${ZAI_SB_CACHE:-$DIR/quota.cache}"
 SEGMENTS=${ZAI_SB_SEGMENTS:-10}
 SHOW_AGE=${ZAI_SB_AGE:-0}
 PLAIN=${ZAI_SB_PLAIN:-0}   # 1 = render without Nerd Font pill caps
+MACOS=0
+[ "$(uname -s 2>/dev/null)" = Darwin ] && MACOS=1
+
+# jq is the only non-system dependency; macOS ships without it, so fall back to
+# the bundled jqsh (a jq-subset interpreter run by python3) when it is absent.
+command -v jq >/dev/null 2>&1 || \
+  jq() { python3 "$(dirname "${BASH_SOURCE[0]}")/jqsh" "$@"; }
 
 c_dim=$'\033[90m'; c_r=$'\033[0m'
 # Palette: xterm-256 cube colors ONLY (65/173/131), never free-form truecolor.
@@ -64,11 +72,13 @@ case "$model" in
   *[Hh]aiku*)  model=$(tier_model ANTHROPIC_DEFAULT_HAIKU_MODEL "$model") ;;
 esac
 model=${model:-Claude}   # jq failed on empty/malformed stdin — keep the pill labeled
-# sanitize LAST: both display_name and the tier_model mapping feed the pill
+# sanitize LAST: both display_name and the tier_model mapping feed the pill.
+# Explicit case pairs, not the GNU sed `I` flag — BSD sed (macOS) rejects it,
+# and a failing sed here would blank the whole model pipeline.
 model=$(printf '%s' "$model" \
   | sed -E $'s/\033\\[[0-9;]*[A-Za-z]//g' \
   | tr -d '[:cntrl:]' | cut -c1-40 \
-  | sed -E 's/^glm/GLM/I; s/-flash/-Flash/I; s/-air/-Air/I')
+  | sed -E 's/^[Gg]lm/GLM/; s/-[Ff]lash/-Flash/g; s/-[Aa]ir/-Air/g')
 
 # ---- quotas ----
 h5p=0 h5r=0 wp=0 wr=0 fetched=0
@@ -103,13 +113,34 @@ fi
 
 now=$(date +%s)
 
+# ---- rollover nudge ----
+# The hooks refresh on prompts and turn ends only, so a 5h/7d reset that passes
+# between turns would freeze the bars on the old window ("99% ... 0m") until the
+# next prompt. While a cached reset time is in the past, spawn one
+# quota-fetch --force per ZAI_ROLL_MIN seconds (default 60; the stamp is written
+# first, so a re-render every second cannot pile up spawns). The fresh cache
+# carries the new windows and the nudge switches itself off.
+roll=0
+[ "$h5r" -gt 0 ] && [ "$h5r" -le "$now" ] && roll=1
+[ "$wr" -gt 0 ] && [ "$wr" -le "$now" ] && roll=1
+if [ "$roll" = 1 ]; then
+  rmin=$(num "${ZAI_ROLL_MIN:-60}")
+  [ "$rmin" -lt 1 ] && rmin=60
+  last=$(num "$(head -1 "$(dirname "$CACHE")/.rollrefresh" 2>/dev/null)")
+  if [ $(( now - last )) -ge "$rmin" ]; then
+    printf '%s\n' "$now" >"$(dirname "$CACHE")/.rollrefresh" 2>/dev/null || true
+    ( "$(dirname "${BASH_SOURCE[0]}")/quota-fetch.sh" --force >/dev/null 2>&1 & )
+  fi
+fi
+
 # ---- turn pulse ----
 # The hooks stamp .turn[-<session_id>] at prompt submit and clear it at turn
 # end, so "a turn is live" is knowable without a busy field in the stdin JSON
-# (there is none). While live, the chip's dot breathes at 1 Hz — the smoothest
-# cadence the statusline host can drive (statusLine.refreshInterval, min 1 s;
-# event-driven re-renders add irregular extra steps for free). No flag = idle:
-# static dot, exactly as before.
+# (there is none). While live, the chip's dot breathes at 2 Hz — toggling every
+# 500 ms, twice the polling floor the statusline host can drive
+# (statusLine.refreshInterval, min 1 s); event-driven re-renders add irregular
+# extra steps for free, and during a live turn those carry the faster phase.
+# No flag = idle: static dot, exactly as before.
 busy=0
 sid=$(jq -r '.session_id // empty' <<<"$IN" 2>/dev/null)
 case "$sid" in ''|*[!A-Za-z0-9_-]*) sid='' ;; esac
@@ -180,9 +211,12 @@ glc=$(col "$h5p")
 if [ "$busy" = 1 ]; then
   tick=${ZAI_SB_TEST_TICK:-}   # test seam: freeze the clock for a deterministic frame
   [ -n "$tick" ] || tick=$(( now * 1000 ))
-  [ $(( (tick / 1000) % 2 )) -eq 0 ] && glc="2;$glc"   # breath-in: SGR-dim the dot
+  [ $(( (tick / 500) % 2 )) -eq 0 ] && glc="2;$glc"   # breath-in: SGR-dim the dot
 fi
-if [ "$PLAIN" = 1 ]; then
+if [ "$MACOS" = 1 ] || [ "$PLAIN" = 1 ]; then
+  # No Nerd Font pill caps: ZAI_SB_PLAIN=1 opts out explicitly, and macOS
+  # terminals render the caps as replacement glyphs — Darwin gets the same
+  # plain "● model" chip, dot color and breath included.
   chip=$(printf '\033[%sm%s\033[0m %s' "$glc" "$DOT" "$model")
 else
   chip=$(printf '\033[38;5;236m%s\033[0m\033[48;5;236m \033[%sm%s\033[0;48;5;236;38;5;252m %s \033[0m\033[38;5;236m%s\033[0m' \

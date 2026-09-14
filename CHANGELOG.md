@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.1.13 — 2026-09-15
+macOS round. The model chip's Nerd Font pill caps (U+E0B6/U+E0B4) render as
+replacement glyphs in macOS Terminal, so Darwin now draws the plain "● model"
+chip — the same form `ZAI_SB_PLAIN=1` opts into: usage-colored dot, busy-turn
+breath and everything else included — while every other platform keeps the pill
+untouched. The model-name sanitizer also drops the GNU-only sed flag (`s///I`)
+that BSD sed rejects; a rejected sed blanked the whole model pipeline, leaving
+stock macOS at a permanent "Claude".
+
+`jq` is no longer a hard dependency: the plugin now bundles `jqsh`, a small
+interpreter for exactly the jq subset its scripts use, and every jq call falls
+back to it (run by `python3`, which macOS provides with the Command Line
+Tools) when jq is absent. `quota-fetch.sh` fails with an actionable message
+only when neither jq nor python3 exists — and it fails before spending the
+network call. The suite now pins the fallback byte-for-byte: every filter the
+scripts use must produce jq-identical output and exit codes through both
+parsers, and the full statusline must render identically with jq stripped
+from PATH.
+
+Self-healing window rollover. The hooks refresh on prompts and turn ends, so
+a 5h/7d boundary passing in between left the bars frozen on the expired
+window ("99% … 0m") until the next prompt. The statusline now notices a reset
+time in the past on its next render and spawns one `quota-fetch --force` in
+the background, throttled by a stamp next to the cache to one attempt per
+`ZAI_ROLL_MIN` seconds (default 60). The fresh cache carries the new windows
+and the nudge switches itself off.
+
+Also in this release: the session-start hook runs synchronously, so the first
+statusline render already has quota data instead of an initial `quota n/a`
+(prompt/turn hooks stay asynchronous), and the busy dot breathes at 2 Hz
+(500 ms toggle) to sit closer to Claude's own spinner cadence.
+
 ## 0.1.12 — 2026-09-14
 Close issue #1: the base-directory default now follows a relocated Claude
 config. Every entry point (hook registrations, `/zai-quota:refresh`, the

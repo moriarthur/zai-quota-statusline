@@ -11,6 +11,21 @@
 set -euo pipefail
 umask 077   # cache and any temp files are user-private by default
 
+# macOS ships curl and bash but not jq. When jq is absent, the bundled jqsh
+# (a jq-subset interpreter run by python3, which macOS dev setups have) steps
+# in; only when neither parser exists do we fail — with a fix, before any
+# network call, instead of treating the response as malformed later.
+if ! command -v curl >/dev/null 2>&1; then
+  echo "ERROR: curl is required (macOS: brew install curl)" >&2
+  exit 1
+fi
+if ! command -v jq >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: jq (or python3) is required (macOS: brew install jq)" >&2
+  exit 1
+fi
+command -v jq >/dev/null 2>&1 || \
+  jq() { python3 "$(dirname "${BASH_SOURCE[0]}")/jqsh" "$@"; }
+
 DIR="${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}"
 CACHE="$DIR/quota.cache"
 MIN_INTERVAL=${ZAI_REFRESH_MIN:-600}

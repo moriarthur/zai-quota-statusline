@@ -67,6 +67,98 @@ check "statusline: empty stdin falls back"          "Claude"           env ZAI_S
 check "statusline: no cache is quiet"               "quota n/a"        env ZAI_SB_CACHE=/tmp/zai-ci-nope bash scripts/zai-statusline.sh </dev/null
 PILL_CAP=$(printf '\ue0b6')   # Nerd Font left pill cap (U+E0B6), ASCII escape so the glyph never travels through edits
 absent "statusline: plain mode has no pill caps"    "$PILL_CAP"        env ZAI_SB_PLAIN=1 ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
+UNAME_TH=$(mktemp -d)
+printf '#!/usr/bin/env bash\nprintf Darwin\n' > "$UNAME_TH/uname"
+chmod +x "$UNAME_TH/uname"
+MAC_DOT=$(printf '\u25cf')
+absent "statusline: macOS has no Nerd Font pill caps" "$PILL_CAP" \
+  env PATH="$UNAME_TH:$PATH" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
+check  "statusline: macOS keeps the plain status dot" "$MAC_DOT" \
+  env PATH="$UNAME_TH:$PATH" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
+check  "statusline: macOS keeps the model name" "GLM-5.3-Flash" \
+  env PATH="$UNAME_TH:$PATH" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
+rm -rf "$UNAME_TH"
+
+# ---- jqsh: without jq on PATH the statusline must render identically ----
+# macOS has no jq; the bundled jqsh (python3) substitutes. Stripping jq from
+# PATH exercises the fallback end-to-end: same cache, same stdin, same line.
+if command -v python3 >/dev/null 2>&1; then
+  NOPATH=$(mktemp -d)
+  for t in bash sh cat uname date sed tr cut head dirname python3 env mktemp chmod rm grep; do
+    p=$(command -v "$t" 2>/dev/null) && ln -s "$p" "$NOPATH/$t"
+  done
+  plain=$(printf '%s' "$IN" | env ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh)
+  shimmed=$(printf '%s' "$IN" | env PATH="$NOPATH" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh)
+  if [ -n "$plain" ] && [ "$plain" = "$shimmed" ]; then
+    ok "statusline: jqsh fallback renders the identical line"
+  else
+    bad "statusline: jqsh fallback renders the identical line"
+  fi
+  rm -rf "$NOPATH"
+else
+  skipped "statusline: jqsh fallback (python3 missing)"
+fi
+
+# ---- jqsh: every filter the scripts use must produce jq-identical output ----
+if command -v jq >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  if python3 -m py_compile scripts/jqsh 2>/dev/null; then
+    ok "jqsh: compiles"
+  else
+    bad "jqsh: compiles"
+  fi
+  SF=$(mktemp)
+  printf '%s' '{"fetched_at":1726000000,"data":{"limits":[{"type":"TOKENS_LIMIT","percentage":42,"number":5,"unit":1,"nextResetTime":1726003600000},{"type":"TOKENS_LIMIT","percentage":77,"number":7,"unit":3,"nextResetTime":1727300000000},{"type":"CREDIT_LIMIT","percentage":9,"nextResetTime":1}]}}' > "$SF"
+  # the verbatim cache query from zai-statusline.sh ($l/$tok/... are jq vars,
+  # not shell ones — hence SC2016)
+  # shellcheck disable=SC2016
+  TSV='(.data.limits // []) as $l
+      | ([$l[] | select(.type == "TOKENS_LIMIT")] | sort_by(.nextResetTime)) as $tok
+      | (if ($tok | length) > 0 then $tok
+         else [$l[] | select(.type == "CREDIT_LIMIT")] | sort_by(.nextResetTime)
+         end) as $t
+      | (if ($tok | length) == 2
+           and ($t[0].number != null) and ($t[1].number != null)
+           and $t[0].number != $t[1].number
+           and (($t[0].number == 5) or ($t[1].number == 5))
+         then (if $t[0].number == 5 then $t else [$t[1], $t[0]] end)
+         else $t end) as $o
+      | [ (($o[0].percentage // 0) | floor),
+          ((($o[0].nextResetTime // 0) / 1000) | floor),
+          (($o[1].percentage // 0) | floor),
+          ((($o[1].nextResetTime // 0) / 1000) | floor),
+          (.fetched_at // 0) ]
+      | @tsv'
+  cmpjq() { # name -- jq args...  (compare stdout and exit code: jq vs jqsh)
+    local name=$1; shift
+    local a b ra rb
+    a=$(jq "$@" 2>/dev/null); ra=$?
+    b=$(python3 scripts/jqsh "$@" 2>/dev/null); rb=$?
+    if [ "$a" = "$b" ] && [ "$ra" = "$rb" ]; then ok "jqsh: $name"
+    else bad "jqsh: $name (jq rc=$ra, shim rc=$rb)"; fi
+  }
+  cmpjq "throttle timestamp"   -r '.fetched_at // 0' "$SF"
+  cmpjq "response shape (-e)"  -e '(.data | type == "object") and (.data.limits | type == "array")' "$SF"
+  # the $ts/$k single-quoted strings are jq variables, deliberately not shell's
+  # shellcheck disable=SC2016
+  cmpjq "cache transform (-c)" -c --argjson ts 1726000010 '{fetched_at:$ts, data:.data}' "$SF"
+  # shellcheck disable=SC2016
+  cmpjq "env tier lookup"      -r --arg k ANTHROPIC_DEFAULT_SONNET_MODEL '.env[$k] // empty' "$SF"
+  cmpjq "model name chain"     -r '.model.display_name // .model.id // empty' "$SF"
+  cmpjq "quota TSV query"      -r "$TSV" "$SF"
+  cmpjq "session id"           -r '.session_id // empty' "$SF"
+  cmpjq "context used"         -r '.context_window.used_percentage // empty' "$SF"
+  cmpjq "context remaining"    -r '.context_window.remaining_percentage // empty' "$SF"
+  cmpjq "session cost"         -r '.cost.total_cost_usd // empty' "$SF"
+  printf '%s' '{"fetched_at":5,"data":{"limits":[{"type":"CREDIT_LIMIT","percentage":13,"nextResetTime":99}]}}' > "$SF"
+  cmpjq "TSV: credit-only plan" -r "$TSV" "$SF"
+  printf '%s' '{"fetched_at":5,"data":{"limits":[{"type":"TOKENS_LIMIT","percentage":10,"number":7,"nextResetTime":1000},{"type":"TOKENS_LIMIT","percentage":90,"number":5,"nextResetTime":500}]}}' > "$SF"
+  cmpjq "TSV: number-labeled swap" -r "$TSV" "$SF"
+  printf '%s' '{"fetched_at":5,"data":{}}' > "$SF"
+  cmpjq "TSV: no limits array" -r "$TSV" "$SF"
+  rm -f "$SF"
+else
+  skipped "jqsh parity (needs jq and python3)"
+fi
 printf '%s' '{"model":{"display_name":"X"},"context_window":{"used_percentage":"abc"},"cost":"1..2"}' \
   | env ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh >/tmp/zai_ci_out 2>/tmp/zai_ci_err
 if ! grep -qE 'integer expression|invalid number' /tmp/zai_ci_err 2>/dev/null; then
@@ -80,7 +172,8 @@ rm -f "$FIX" /tmp/zai_ci_out /tmp/zai_ci_err
 TH=$(mktemp -d)
 if ZAI_QUOTA_DIR="$TH/zq" bash scripts/sync.sh >/dev/null 2>&1 \
   && [ -x "$TH/zq/quota-fetch.sh" ] && [ -x "$TH/zq/quota-hook.sh" ] \
-  && [ -x "$TH/zq/zai-statusline.sh" ] && [ -x "$TH/zq/sync.sh" ]; then
+  && [ -x "$TH/zq/zai-statusline.sh" ] && [ -x "$TH/zq/sync.sh" ] \
+  && [ -x "$TH/zq/jqsh" ]; then
   ok "sync: installs all scripts executable"
 else
   bad "sync: installs all scripts executable"
@@ -121,7 +214,7 @@ fi
 rm -rf "$FIX5" "$FIX6"
 
 # ---- statusline: the dot breathes while a turn is live ----
-# The pulse is an SGR-2 dim on even seconds, so these checks read RAW output
+# The pulse is an SGR-2 dim on even half-second steps, so these checks read RAW output
 # (the suite's ANSI-stripper would erase the very thing under test).
 FIXD=$(mktemp -d)
 jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:21,nextResetTime:(($ts+3600)*1000)}]}}' > "$FIXD/quota.cache"
@@ -133,7 +226,7 @@ if [[ "$raw" == *"$dim"* ]]; then
 else
   bad "statusline: busy turn dims the dot on the breath-in tick"
 fi
-raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=3000 bash scripts/zai-statusline.sh)
+raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2500 bash scripts/zai-statusline.sh)
 if [[ "$raw" != *"$dim"* ]]; then
   ok "statusline: busy turn keeps the dot full on the breath-out tick"
 else
@@ -234,6 +327,44 @@ else
   bad "statusline: remaining time separates units (\"2h 45m\", \"1d 4h\")"
 fi
 rm -f "$FIX4"
+
+# ---- statusline: a passed reset time nudges one throttled refresh ----
+# the hooks refresh on prompts and turn ends only, so a window that rolls over
+# between turns must self-heal on the next render instead of freezing the old
+# bars at "99% ... 0m". Tokens are stripped so the spawned --force fetch can
+# never touch the network from the suite.
+TH=$(mktemp -d)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[
+     {type:"TOKENS_LIMIT",percentage:99,number:5,unit:1,nextResetTime:(($ts-60000)*1000)},
+     {type:"TOKENS_LIMIT",percentage:77,number:7,unit:3,nextResetTime:(($ts+172800)*1000)}]}}' > "$TH/quota.cache"
+run_sb() { # $1=ZAI_QUOTA_DIR — render one statusline into the void
+  printf '%s' "$IN" | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_SB_CACHE \
+    ZAI_QUOTA_DIR="$1" bash scripts/zai-statusline.sh >/dev/null 2>&1
+}
+run_sb "$TH"
+if [ -f "$TH/.rollrefresh" ]; then
+  ok "rollover: an expired reset time stamps a refresh nudge"
+else
+  bad "rollover: an expired reset time stamps a refresh nudge"
+fi
+s1=$(cat "$TH/.rollrefresh" 2>/dev/null)
+run_sb "$TH"
+s2=$(cat "$TH/.rollrefresh" 2>/dev/null)
+if [ -n "$s1" ] && [ "$s1" = "$s2" ]; then
+  ok "rollover: re-renders within the minute do not re-nudge"
+else
+  bad "rollover: re-renders within the minute do not re-nudge"
+fi
+mkdir -p "$TH/future"
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:9,nextResetTime:(($ts+10800)*1000)}]}}' > "$TH/future/quota.cache"
+run_sb "$TH/future"
+if [ ! -f "$TH/future/.rollrefresh" ]; then
+  ok "rollover: future resets stay quiet"
+else
+  bad "rollover: future resets stay quiet"
+fi
+rm -rf "$TH"
+
 ESC=$(printf '\033')
 # \033[2J on purpose: the suite's ANSI-stripper only masks m-terminated SGR
 # codes, so a clear-screen escape in the output would still be detected
@@ -324,6 +455,20 @@ else
 fi
 rm -rf "$TH"
 
+# ---- fetcher: neither jq nor python3 -> an actionable error, no network ----
+TH=$(mktemp -d)
+NOPATH=$(mktemp -d)
+for t in bash env curl; do
+  p=$(command -v "$t" 2>/dev/null) && ln -s "$p" "$NOPATH/$t"
+done
+out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR PATH="$NOPATH" HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"jq (or python3) is required"* ]]; then
+  ok "fetcher: no jq and no python3 fails with a fix, not a parse error"
+else
+  bad "fetcher: no jq and no python3 fails with a fix, not a parse error (exit $rc)"
+fi
+rm -rf "$TH" "$NOPATH"
+
 # ---- security: the token never travels further than the configured host ----
 # env -u strips real credentials so the tests never touch the live API
 TH=$(mktemp -d)
@@ -390,7 +535,8 @@ fi
 # the next greps look for literal ${...} strings:
 # shellcheck disable=SC2016
 if grep -q '${CLAUDE_PLUGIN_ROOT}/scripts' hooks/hooks.json \
-   && grep -qF '${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}' hooks/hooks.json; then
+   && grep -qF '${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}' hooks/hooks.json \
+   && ! jq -e '.hooks.SessionStart[0].hooks[0].async == true' hooks/hooks.json >/dev/null 2>&1; then
   ok "hooks.json: plugin root + stable path contract"
 else
   bad "hooks.json: plugin root + stable path contract"

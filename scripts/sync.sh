@@ -13,7 +13,8 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -d "$SRC" ] || { echo "ERROR: source scripts not found at $SRC" >&2; exit 1; }
 mkdir -p "$DEST"
 
-for f in "$SRC"/*.sh; do
+for f in "$SRC"/*.sh "$SRC"/jqsh; do
+  [ -f "$f" ] || continue           # jqsh may be absent in a stripped tree
   name=$(basename "$f")
   tmp="$DEST/.sync.$name.$$"        # process-unique: parallel syncs never collide
   cp -f "$f" "$tmp"

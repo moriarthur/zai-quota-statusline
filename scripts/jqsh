@@ -1,0 +1,647 @@
+#!/usr/bin/env python3
+# jqsh — tiny jq stand-in for machines without jq (macOS ships none).
+#
+# Implements only the jq subset this plugin's scripts use: field paths
+# (.a.b), .[expr] indexing, .[] iteration, $vars, literals, the // operator,
+# and/or, comparisons, + - * / arithmetic, "EXPR as $x | body" bindings,
+# object/array construction, select(), sort_by(), length, floor, type, and
+# @tsv, driven through the -r/-c/-e/--arg/--argjson flags. Output is always
+# compact, one value per line (-r prints strings raw).
+#
+# Anything outside the subset fails loudly on stderr instead of guessing:
+# callers already treat a parser failure as "no data" and fall back, so a
+# silent wrong answer is the only unacceptable outcome.
+#
+# Exit codes follow jq: 0 ok; -e: 1 when the last output is false/null,
+# 4 when there was none; 2 input/usage error; 3 unsupported filter syntax.
+import json
+import math
+import re
+import sys
+
+
+class JqError(Exception):
+    pass
+
+
+class JqSyntax(Exception):
+    pass
+
+
+TOKEN_RE = re.compile(r'''
+    (?P<ws>\s+|\#[^\n]*)
+  | (?P<op>//|==|!=|<=|>=|[|,:;(){}\[\]<>.+\-*/%])
+  | (?P<var>\$[A-Za-z_][A-Za-z0-9_]*)
+  | (?P<fmt>@[A-Za-z0-9_]+)
+  | (?P<num>\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)
+  | (?P<str>"(?:[^"\\]|\\.)*")
+  | (?P<ident>[A-Za-z_][A-Za-z0-9_]*)
+''', re.VERBOSE)
+
+STR_ESCAPES = {'"': '"', '\\': '\\', '/': '/', 'b': '\b', 'f': '\f',
+               'n': '\n', 'r': '\r', 't': '\t'}
+
+CMP_OPS = ('==', '!=', '<', '<=', '>', '>=')
+
+
+def lex(src):
+    toks, i, n = [], 0, len(src)
+    while i < n:
+        m = TOKEN_RE.match(src, i)
+        if m is None:
+            raise JqSyntax('unexpected character %r' % src[i])
+        i = m.end()
+        kind = m.lastgroup
+        if kind == 'ws':
+            continue
+        if kind == 'str':
+            toks.append(('str', unescape(m.group())))
+        else:
+            toks.append((kind, m.group()))
+    toks.append(('eof', None))
+    return toks
+
+
+def unescape(quoted):
+    body, out, i = quoted[1:-1], [], 0
+    while i < len(body):
+        c = body[i]
+        if c != '\\':
+            out.append(c)
+            i += 1
+            continue
+        e = body[i + 1] if i + 1 < len(body) else ''
+        if e == '(':
+            raise JqSyntax('string interpolation is not supported')
+        if e == 'u':
+            out.append(chr(int(body[i + 2:i + 6], 16)))
+            i += 6
+            continue
+        if e not in STR_ESCAPES:
+            raise JqSyntax('bad escape \\%s' % e)
+        out.append(STR_ESCAPES[e])
+        i += 2
+    return ''.join(out)
+
+
+class Parser:
+    """Precedence, loosest to tightest: | , then // then or/and, comparisons,
+    + -, * /, then postfix paths — the same ladder jq uses."""
+
+    def __init__(self, toks):
+        self.toks = toks
+        self.i = 0
+
+    def peek(self, ahead=0):
+        p = self.i + ahead
+        return self.toks[p] if p < len(self.toks) else ('eof', None)
+
+    def take(self):
+        t = self.peek()
+        self.i += 1
+        return t
+
+    def expect(self, kind, val=None):
+        t = self.take()
+        if t[0] != kind or (val is not None and t[1] != val):
+            raise JqSyntax('expected %s %r, got %r' % (kind, val, t))
+        return t
+
+    def parse_program(self):
+        node = self.parse_pipe()
+        if self.peek()[0] != 'eof':
+            raise JqSyntax('trailing tokens: %r' % (self.peek(),))
+        return node
+
+    def parse_pipe(self):
+        node = self.parse_comma()
+        if self.peek() == ('ident', 'as'):
+            self.take()
+            var = self.expect('var')[1][1:]
+            self.expect('op', '|')
+            return ('bind', node, var, self.parse_pipe())
+        parts = [node]
+        while self.peek() == ('op', '|'):
+            self.take()
+            parts.append(self.parse_comma())
+        return parts[0] if len(parts) == 1 else ('pipe', parts)
+
+    def parse_comma(self):
+        parts = [self.parse_alt()]
+        while self.peek() == ('op', ','):
+            self.take()
+            parts.append(self.parse_alt())
+        return parts[0] if len(parts) == 1 else ('comma', parts)
+
+    def parse_alt(self):
+        node = self.parse_or()
+        while self.peek() == ('op', '//'):
+            self.take()
+            node = ('alt', node, self.parse_or())
+        return node
+
+    def parse_or(self):
+        node = self.parse_and()
+        while self.peek() == ('ident', 'or'):
+            self.take()
+            node = ('or', node, self.parse_and())
+        return node
+
+    def parse_and(self):
+        node = self.parse_cmp()
+        while self.peek() == ('ident', 'and'):
+            self.take()
+            node = ('and', node, self.parse_cmp())
+        return node
+
+    def parse_cmp(self):
+        node = self.parse_add()
+        t = self.peek()
+        if t[0] == 'op' and t[1] in CMP_OPS:
+            self.take()
+            node = ('cmp', t[1], node, self.parse_add())
+        return node
+
+    def parse_add(self):
+        node = self.parse_mul()
+        while self.peek()[0] == 'op' and self.peek()[1] in ('+', '-'):
+            op = self.take()[1]
+            node = ('arith', op, node, self.parse_mul())
+        return node
+
+    def parse_mul(self):
+        node = self.parse_postfix()
+        while self.peek()[0] == 'op' and self.peek()[1] in ('*', '/', '%'):
+            op = self.take()[1]
+            node = ('arith', op, node, self.parse_postfix())
+        return node
+
+    def parse_postfix(self):
+        node = self.parse_primary()
+        while True:
+            t = self.peek()
+            if t[0] == 'op' and t[1] == '.' and self.peek(1)[0] == 'ident':
+                self.take()
+                node = ('field', node, self.take()[1])
+            elif t == ('op', '['):
+                self.take()
+                if self.peek() == ('op', ']'):
+                    self.take()
+                    node = ('iterate', node)
+                else:
+                    idx = self.parse_pipe()
+                    self.expect('op', ']')
+                    node = ('index', node, idx)
+            else:
+                return node
+
+    def parse_primary(self):
+        kind, val = self.take()
+        if kind == 'op' and val == '.':
+            if self.peek()[0] == 'ident':
+                return ('field', ('identity',), self.take()[1])
+            return ('identity',)
+        if kind == 'var':
+            return ('varref', val[1:])
+        if kind == 'num':
+            return ('lit', json.loads(val))   # digits -> int, else float
+        if kind == 'str':
+            return ('lit', val)
+        if kind == 'fmt':
+            if val == '@tsv':
+                return ('tsv',)
+            raise JqSyntax('unsupported format %s' % val)
+        if kind == 'ident':
+            if val == 'null':
+                return ('lit', None)
+            if val == 'true':
+                return ('lit', True)
+            if val == 'false':
+                return ('lit', False)
+            if val == 'empty':
+                return ('empty',)
+            if val == 'if':
+                return self.parse_if()
+            if val in ('select', 'sort_by'):
+                self.expect('op', '(')
+                arg = self.parse_pipe()
+                self.expect('op', ')')
+                return ('call1', val, arg)
+            if val in ('type', 'length', 'floor'):
+                return ('zero', val)
+            raise JqSyntax('unsupported function %r' % val)
+        if (kind, val) == ('op', '('):
+            node = self.parse_pipe()
+            self.expect('op', ')')
+            return node
+        if (kind, val) == ('op', '['):
+            if self.peek() == ('op', ']'):
+                self.take()
+                return ('arr', None)
+            node = self.parse_pipe()
+            self.expect('op', ']')
+            return ('arr', node)
+        if (kind, val) == ('op', '{'):
+            return self.parse_object()
+        raise JqSyntax('unsupported token %r' % ((kind, val),))
+
+    def parse_object(self):
+        entries = []
+        if self.peek() == ('op', '}'):
+            self.take()
+            return ('obj', entries)
+        while True:
+            kind, val = self.take()
+            if kind not in ('ident', 'str'):
+                raise JqSyntax('unsupported object key %r' % ((kind, val),))
+            self.expect('op', ':')
+            entries.append((val, self.parse_alt()))   # values bind tighter than ','
+            t = self.take()
+            if t == ('op', '}'):
+                return ('obj', entries)
+            if t != ('op', ','):
+                raise JqSyntax('expected , or } in object, got %r' % (t,))
+
+    def parse_if(self):
+        branches = [self.parse_branch()]
+        els = ('identity',)
+        while True:
+            t = self.take()
+            if t == ('ident', 'elif'):
+                branches.append(self.parse_branch())
+            elif t == ('ident', 'else'):
+                els = self.parse_pipe()
+                self.expect('ident', 'end')
+                break
+            elif t == ('ident', 'end'):
+                break
+            else:
+                raise JqSyntax('expected elif/else/end, got %r' % (t,))
+        return ('if', branches, els)
+
+    def parse_branch(self):
+        cond = self.parse_pipe()
+        self.expect('ident', 'then')
+        return (cond, self.parse_pipe())
+
+
+def jtype(v):
+    if v is None:
+        return 'null'
+    if isinstance(v, bool):
+        return 'boolean'
+    if isinstance(v, (int, float)):
+        return 'number'
+    if isinstance(v, str):
+        return 'string'
+    if isinstance(v, list):
+        return 'array'
+    return 'object'
+
+
+def truthy(v):
+    return v is not None and v is not False
+
+
+def is_num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def jq_eq(a, b):
+    if isinstance(a, bool) != isinstance(b, bool):
+        return False
+    if is_num(a) and is_num(b):
+        return a == b
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, list):
+        return len(a) == len(b) and all(jq_eq(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(jq_eq(a[k], b[k]) for k in a)
+    return a == b
+
+
+def ordkey(v):
+    """Total order over JSON values, mirroring jq's sort order."""
+    if v is None:
+        return (0,)
+    if v is False:
+        return (1,)
+    if v is True:
+        return (2,)
+    if is_num(v):
+        return (3, v)
+    if isinstance(v, str):
+        return (4, v)
+    if isinstance(v, list):
+        return (5, [ordkey(x) for x in v])
+    return (6, sorted((k, ordkey(x)) for k, x in v.items()))
+
+
+def idx_get(base, key):
+    if isinstance(key, str):
+        if base is None:
+            return None
+        if isinstance(base, dict):
+            return base.get(key)
+        raise JqError('cannot index %s with "%s"' % (jtype(base), key))
+    if not is_num(key):
+        raise JqError('cannot index with %s' % jtype(key))
+    if base is None:
+        return None
+    if isinstance(base, list):
+        i = int(key)
+        if i < 0:
+            i += len(base)
+        return base[i] if 0 <= i < len(base) else None
+    raise JqError('cannot index %s with a number' % jtype(base))
+
+
+def arith(op, a, b):
+    if op == '+':
+        if a is None:
+            return b
+        if b is None:
+            return a
+        if is_num(a) and is_num(b):
+            return a + b
+        if isinstance(a, str) and isinstance(b, str):
+            return a + b
+        if isinstance(a, list) and isinstance(b, list):
+            return a + b
+        if isinstance(a, dict) and isinstance(b, dict):
+            out = dict(a)
+            out.update(b)
+            return out
+    elif op == '-':
+        if is_num(a) and is_num(b):
+            return a - b
+        if isinstance(a, list) and isinstance(b, list):
+            return [x for x in a if not any(jq_eq(x, y) for y in b)]
+    elif op == '*':
+        if is_num(a) and is_num(b):
+            return a * b
+    elif op == '/':
+        if is_num(a) and is_num(b):
+            if b == 0:
+                raise JqError('cannot divide by zero')
+            return a / b
+    elif op == '%':
+        if is_num(a) and is_num(b):
+            if int(b) == 0:
+                raise JqError('cannot modulo by zero')
+            return int(math.fmod(int(a), int(b)))
+    raise JqError('%s and %s cannot be %s' % (jtype(a), jtype(b),
+                                              {'+': 'added', '-': 'subtracted',
+                                               '*': 'multiplied', '/': 'divided',
+                                               '%': 'divided'}[op]))
+
+
+def tsv_cell(v):
+    if v is None:
+        return 'null'
+    if v is True:
+        return 'true'
+    if v is False:
+        return 'false'
+    if is_num(v):
+        return json.dumps(v)
+    if isinstance(v, str):
+        return (v.replace('\\', '\\\\').replace('\t', '\\t')
+                 .replace('\n', '\\n').replace('\r', '\\r'))
+    raise JqError('@tsv cells must be scalars')
+
+
+def eval_node(node, inp, env):
+    op = node[0]
+    if op == 'identity':
+        yield inp
+    elif op == 'lit':
+        yield node[1]
+    elif op == 'empty':
+        pass
+    elif op == 'varref':
+        if node[1] not in env:
+            raise JqError('$%s is not defined' % node[1])
+        yield env[node[1]]
+    elif op == 'field':
+        for base in eval_node(node[1], inp, env):
+            yield idx_get(base, node[2])
+    elif op == 'index':
+        for base in eval_node(node[1], inp, env):
+            for key in eval_node(node[2], inp, env):
+                yield idx_get(base, key)
+    elif op == 'iterate':
+        for base in eval_node(node[1], inp, env):
+            if isinstance(base, list):
+                yield from base
+            elif isinstance(base, dict):
+                yield from base.values()
+            else:
+                raise JqError('cannot iterate over %s' % jtype(base))
+    elif op == 'pipe':
+        yield from eval_pipe(node[1], inp, env)
+    elif op == 'comma':
+        for part in node[1]:
+            yield from eval_node(part, inp, env)
+    elif op == 'bind':
+        for v in eval_node(node[1], inp, env):
+            inner = dict(env)
+            inner[node[2]] = v
+            yield from eval_node(node[3], inp, inner)
+    elif op == 'alt':
+        got = False
+        for v in eval_node(node[1], inp, env):
+            if truthy(v):
+                got = True
+                yield v
+        if not got:
+            yield from eval_node(node[2], inp, env)
+    elif op == 'and':
+        for a in eval_node(node[1], inp, env):
+            if not truthy(a):
+                yield False
+            else:
+                for b in eval_node(node[2], inp, env):
+                    yield truthy(b)
+    elif op == 'or':
+        for a in eval_node(node[1], inp, env):
+            if truthy(a):
+                yield True
+            else:
+                for b in eval_node(node[2], inp, env):
+                    yield truthy(b)
+    elif op == 'cmp':
+        _, o, ln, rn = node
+        for a in eval_node(ln, inp, env):
+            for b in eval_node(rn, inp, env):
+                if o == '==':
+                    yield jq_eq(a, b)
+                elif o == '!=':
+                    yield not jq_eq(a, b)
+                else:
+                    ka, kb = ordkey(a), ordkey(b)
+                    yield {'<': ka < kb, '<=': ka <= kb,
+                           '>': ka > kb, '>=': ka >= kb}[o]
+    elif op == 'arith':
+        _, o, ln, rn = node
+        for a in eval_node(ln, inp, env):
+            for b in eval_node(rn, inp, env):
+                yield arith(o, a, b)
+    elif op == 'zero':
+        name = node[1]
+        if name == 'type':
+            yield jtype(inp)
+        elif name == 'length':
+            if inp is None:
+                yield 0
+            elif isinstance(inp, (list, dict, str)):
+                yield len(inp)
+            elif is_num(inp):
+                yield abs(inp)
+            else:
+                raise JqError('%s has no length' % jtype(inp))
+        elif name == 'floor':
+            if not is_num(inp):
+                raise JqError('%s cannot be floored' % jtype(inp))
+            yield math.floor(inp)
+    elif op == 'call1':
+        name, arg = node[1], node[2]
+        if name == 'select':
+            for v in eval_node(arg, inp, env):
+                if truthy(v):
+                    yield inp
+        else:   # sort_by
+            if not isinstance(inp, list):
+                raise JqError('sort_by input must be an array, got %s' % jtype(inp))
+            yield sorted(inp, key=lambda item: [ordkey(v)
+                        for v in eval_node(arg, item, env)])
+    elif op == 'arr':
+        yield [] if node[1] is None else list(eval_node(node[1], inp, env))
+    elif op == 'obj':
+        entries = node[1]
+
+        def build(i, acc):
+            if i == len(entries):
+                yield dict(acc)
+                return
+            key, expr = entries[i]
+            for v in eval_node(expr, inp, env):
+                yield from build(i + 1, acc + [(key, v)])
+        yield from build(0, [])
+    elif op == 'if':
+        def branch(bs):
+            if not bs:
+                yield from eval_node(node[2], inp, env)
+                return
+            cond, body = bs[0]
+            for cv in eval_node(cond, inp, env):
+                if truthy(cv):
+                    yield from eval_node(body, inp, env)
+                else:
+                    yield from branch(bs[1:])
+        yield from branch(node[1])
+    elif op == 'tsv':
+        if not isinstance(inp, list):
+            raise JqError('@tsv input must be an array, got %s' % jtype(inp))
+        yield '\t'.join(tsv_cell(v) for v in inp)
+    else:
+        raise JqSyntax('unsupported node %r' % op)
+
+
+def eval_pipe(parts, inp, env):
+    if not parts:
+        yield inp
+        return
+    for v in eval_node(parts[0], inp, env):
+        yield from eval_pipe(parts[1:], v, env)
+
+
+def emit(v, raw):
+    if raw and isinstance(v, str):
+        return v
+    return json.dumps(v, ensure_ascii=False, separators=(',', ':'))
+
+
+def main(argv):
+    raw = estatus = False
+    env = {}
+    filt = None
+    files = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ('-r', '--raw-output'):
+            raw = True
+        elif a in ('-c', '--compact-output'):
+            pass   # output is always compact
+        elif a in ('-e', '--exit-status'):
+            estatus = True
+        elif a == '--arg':
+            if i + 2 >= len(argv):
+                sys.stderr.write('jqsh: --arg needs name and value\n')
+                return 2
+            env[argv[i + 1]] = argv[i + 2]
+            i += 2
+        elif a == '--argjson':
+            if i + 2 >= len(argv):
+                sys.stderr.write('jqsh: --argjson needs name and value\n')
+                return 2
+            try:
+                env[argv[i + 1]] = json.loads(argv[i + 2])
+            except ValueError as exc:
+                sys.stderr.write('jqsh: invalid --argjson %s: %s\n' % (argv[i + 1], exc))
+                return 2
+            i += 2
+        elif a == '--version':
+            print('jqsh-1.0 (zai-quota-statusline fallback)')
+            return 0
+        elif a.startswith('-') and a != '-':
+            sys.stderr.write('jqsh: unsupported flag %s\n' % a)
+            return 2
+        elif filt is None:
+            filt = a
+        else:
+            files.append(a)
+        i += 1
+    if filt is None:
+        sys.stderr.write('jqsh: a filter is required\n')
+        return 2
+    try:
+        ast = Parser(lex(filt)).parse_program()
+    except JqSyntax as exc:
+        sys.stderr.write('jqsh: unsupported filter (%s) — install jq for full syntax\n' % exc)
+        return 3
+    try:
+        text = open(files[0]).read() if files else sys.stdin.read()
+    except OSError as exc:
+        sys.stderr.write('jqsh: %s\n' % exc)
+        return 2
+    noout = object()
+    last = noout
+    try:
+        data = json.loads(text) if text.strip() else noout
+        # empty input: jq yields no documents and stays quiet
+    except ValueError as exc:
+        sys.stderr.write('jqsh: invalid JSON input: %s\n' % exc)
+        return 2
+    try:
+        if data is not noout:
+            for out in eval_node(ast, data, env):
+                last = out
+                sys.stdout.write(emit(out, raw) + '\n')
+    except JqError as exc:
+        sys.stderr.write('jqsh: %s\n' % exc)
+        return 5
+    except RecursionError:
+        sys.stderr.write('jqsh: filter too deep\n')
+        return 3
+    if estatus:
+        if last is noout:
+            return 4
+        return 0 if truthy(last) else 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
