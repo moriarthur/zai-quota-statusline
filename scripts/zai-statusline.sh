@@ -12,7 +12,8 @@
 set -o pipefail
 
 IN=$(cat)
-CACHE="${ZAI_SB_CACHE:-${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota.cache}"
+DIR="${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}"
+CACHE="${ZAI_SB_CACHE:-$DIR/quota.cache}"
 SEGMENTS=${ZAI_SB_SEGMENTS:-10}
 SHOW_AGE=${ZAI_SB_AGE:-0}
 PLAIN=${ZAI_SB_PLAIN:-0}   # 1 = render without Nerd Font pill caps
@@ -101,6 +102,22 @@ if [ -f "$CACHE" ]; then
 fi
 
 now=$(date +%s)
+
+# ---- turn pulse ----
+# The hooks stamp .turn[-<session_id>] at prompt submit and clear it at turn
+# end, so "a turn is live" is knowable without a busy field in the stdin JSON
+# (there is none). While live, the chip's dot breathes at 1 Hz — the smoothest
+# cadence the statusline host can drive (statusLine.refreshInterval, min 1 s;
+# event-driven re-renders add irregular extra steps for free). No flag = idle:
+# static dot, exactly as before.
+busy=0
+sid=$(jq -r '.session_id // empty' <<<"$IN" 2>/dev/null)
+case "$sid" in ''|*[!A-Za-z0-9_-]*) sid='' ;; esac
+for f in "$DIR/.turn${sid:+-$sid}" "$DIR/.turn"; do
+  [ -f "$f" ] || continue
+  [ "$(( now - $(num "$(head -1 "$f" 2>/dev/null)") ))" -lt 86400 ] && { busy=1; break; }
+done
+
 remain() { # epoch -> "3h 39m" / "1d 5h" / "12m"
   local r=$(( ${1:-0} - now )); [ "$r" -lt 0 ] && r=0
   local d=$(( r / 86400 )) h=$(( (r % 86400) / 3600 )) m=$(( (r % 3600) / 60 ))
@@ -160,6 +177,11 @@ fi
 
 # ---- model chip ----
 glc=$(col "$h5p")
+if [ "$busy" = 1 ]; then
+  tick=${ZAI_SB_TEST_TICK:-}   # test seam: freeze the clock for a deterministic frame
+  [ -n "$tick" ] || tick=$(( now * 1000 ))
+  [ $(( (tick / 1000) % 2 )) -eq 0 ] && glc="2;$glc"   # breath-in: SGR-dim the dot
+fi
 if [ "$PLAIN" = 1 ]; then
   chip=$(printf '\033[%sm%s\033[0m %s' "$glc" "$DOT" "$model")
 else

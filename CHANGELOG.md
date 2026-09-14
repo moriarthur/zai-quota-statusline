@@ -17,6 +17,16 @@ silence SC2317 on the indirectly-invoked `sb` test helper — shellcheck ≥0.9
 (which our pinned 0.8.0 predates) flags it as unreachable, which is what turned
 the v0.1.3/v0.1.8 tag builds red.
 
+Native-feel bonus: the chip's dot now **breathes while a turn is live**. The
+stdin JSON carries no busy signal, so the hooks provide one — `pre` stamps a
+per-session `.turn-<session_id>` flag at prompt submit, `post` clears it at
+turn end, `session` sweeps leftovers from crashed turns — and the statusline
+renders the dot SGR-dimmed on even seconds: a 1 Hz intensity pulse, the
+smoothest cadence the statusline host can drive (`statusLine.refreshInterval`,
+min 1 s; event-driven re-renders add irregular extra steps for free). The flag
+is a file stamp and adds no API calls; README snippets gain
+`"refreshInterval": 1` and spell out that fetching stays event-driven.
+
 ## 0.1.11 — 2026-09-14
 Fix inverted severity colors: the status line now uses xterm-256 cube palette
 codes (65 / 173 / 131) exclusively instead of free-form truecolor. Diagnosed

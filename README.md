@@ -7,7 +7,8 @@ Event-driven Z.AI / GLM quota monitoring for [Claude Code](https://claude.com/cl
 prompt and again when the turn finishes, so the statusline always shows fresh numbers.
 
 **Design goal:** the line should feel *native to Claude Code*. Everything lives in the CLI
-you already work in — a model chip with a usage-colored dot, usage bars in a green → orange →
+you already work in — a model chip with a usage-colored dot that **breathes while a turn is
+live** (like the native spinner), usage bars in a green → orange →
 red severity scale (xterm-256 cube colors, see below), context-left and
 session cost — visible in real time, with no manual refresh requests and no browser
 dashboard.
@@ -34,7 +35,9 @@ prompt submitted ──▶ UserPromptSubmit hook ─▶ quota fetch (async) ─�
 The hooks are `async`, so they **never add latency** to prompt processing. A PID-symlink
 lock plus an event-aware dedup window (8 s, tunable) collapse duplicate hook firings and
 parallel sessions; the fetch itself is a single plain GET to Z.AI's plan-usage endpoint —
-one call per prompt/turn cycle, nothing in between.
+one call per prompt/turn cycle, nothing in between. The same hooks also stamp a
+per-session turn flag (`.turn-<session_id>`) that the statusline reads to pulse the dot
+during a live turn — a file stamp, never an API call.
 
 ## Requirements
 
@@ -72,10 +75,17 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
      "statusLine": {
        "type": "command",
        "command": "bash $HOME/.claude/zaiquota/zai-statusline.sh",
-       "padding": 0
+       "padding": 0,
+       "refreshInterval": 1
      }
    }
    ```
+
+   `refreshInterval` (seconds) is what lets the dot breathe: while a turn is live the
+   chip's dot pulses at 1 Hz, mirroring Claude's own spinner. Quota **fetching** stays
+   event-driven — the timer only re-renders the line from the cache, it never calls the
+   API. Without it the dot still pulses on every conversation event, just not on a steady
+   beat.
 
 3. Restart Claude Code. On session start the plugin syncs its scripts to the stable path
    `~/.claude/zaiquota/` (so plugin updates propagate automatically), registers the hooks,
@@ -106,7 +116,8 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
   "statusLine": {
     "type": "command",
     "command": "bash $HOME/.claude/zaiquota/zai-statusline.sh",
-    "padding": 0
+    "padding": 0,
+    "refreshInterval": 1
   },
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "~/.claude/zaiquota/quota-hook.sh session", "timeout": 20, "async": true }] }],

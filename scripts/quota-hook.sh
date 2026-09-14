@@ -29,7 +29,7 @@ STATE="$DIR/.hook-state"
 LOG="$DIR/hook.log"
 WINDOW=${ZAI_HOOK_DEDUP_SEC:-8}
 
-cat >/dev/null 2>&1 || true      # drain hook stdin (tiny JSON)
+req=$(cat 2>/dev/null || true)   # hook stdin: tiny JSON (session_id is all we need)
 mkdir -p "$DIR"
 
 # crude log rotation (wc -c is portable where GNU stat -c%s is not)
@@ -38,6 +38,20 @@ logsize=0
 [ "$logsize" -gt 262144 ] && : > "$LOG"
 
 now=$(date +%s)
+
+# Turn-state flag for the statusline's dot pulse: `pre` stamps it at prompt
+# submit, `post` clears it at turn end, `session` sweeps leftovers (a crashed
+# turn must not leave an immortal pulse). Deliberately BEFORE the fetch
+# lock/dedup below — pulse signaling must not depend on whether this hook's
+# fetch runs; it is a file stamp, never an extra API call.
+sid=$(jq -r '.session_id // empty' <<<"$req" 2>/dev/null)
+case "$sid" in ''|*[!A-Za-z0-9_-]*) sid='' ;; esac   # filename-safe only
+TURN="$DIR/.turn${sid:+-$sid}"
+case "$EV" in
+  pre)     printf '%s\n' "$now" >"$TURN" ;;
+  post)    rm -f "$TURN" ;;          # own session only — a parallel one may still be busy
+  session) rm -f "$DIR"/.turn* ;;    # fresh start sweeps stale flags from crashed turns
+esac
 
 # Cross-session single-fetch guarantee. The lock is a FIXED-NAME symlink
 # whose target is the holder's PID: symlink(2) is atomic and publishes the

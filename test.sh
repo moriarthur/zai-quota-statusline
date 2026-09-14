@@ -119,6 +119,73 @@ else
   bad "statusline: ZAI_QUOTA_DIR overrides CLAUDE_CONFIG_DIR"
 fi
 rm -rf "$FIX5" "$FIX6"
+
+# ---- statusline: the dot breathes while a turn is live ----
+# The pulse is an SGR-2 dim on even seconds, so these checks read RAW output
+# (the suite's ANSI-stripper would erase the very thing under test).
+FIXD=$(mktemp -d)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:21,nextResetTime:(($ts+3600)*1000)}]}}' > "$FIXD/quota.cache"
+printf '%s\n' "$NOW" > "$FIXD/.turn"
+dim=$'\033[2;38;5;'
+raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
+if [[ "$raw" == *"$dim"* ]]; then
+  ok "statusline: busy turn dims the dot on the breath-in tick"
+else
+  bad "statusline: busy turn dims the dot on the breath-in tick"
+fi
+raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=3000 bash scripts/zai-statusline.sh)
+if [[ "$raw" != *"$dim"* ]]; then
+  ok "statusline: busy turn keeps the dot full on the breath-out tick"
+else
+  bad "statusline: busy turn keeps the dot full on the breath-out tick"
+fi
+rm -f "$FIXD/.turn"   # idle case: the breath-in test above left its flag behind
+raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
+if [[ "$raw" != *"$dim"* ]]; then
+  ok "statusline: idle dot is static (no turn flag)"
+else
+  bad "statusline: idle dot is static (no turn flag)"
+fi
+printf '0\n' > "$FIXD/.turn"   # stamp older than the 24h sanity cap
+raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
+if [[ "$raw" != *"$dim"* ]]; then
+  ok "statusline: stale turn flag does not pulse"
+else
+  bad "statusline: stale turn flag does not pulse"
+fi
+# per-session flag: only the owning session pulses
+IN_SID='{"model":{"display_name":"X"},"session_id":"sb-pulse-test"}'
+printf '%s\n' "$NOW" > "$FIXD/.turn-sb-pulse-test"
+raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
+if [[ "$raw" == *"$dim"* ]]; then
+  ok "statusline: session-scoped turn flag pulses its own session"
+else
+  bad "statusline: session-scoped turn flag pulses its own session"
+fi
+rm -f "$FIXD/.turn-sb-pulse-test"
+raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
+if [[ "$raw" != *"$dim"* ]]; then
+  ok "statusline: another session's flag does not pulse this one"
+else
+  bad "statusline: another session's flag does not pulse this one"
+fi
+rm -rf "$FIXD"
+
+# ---- hook: pre stamps the turn flag, post clears it ----
+TH=$(mktemp -d)
+printf '{"session_id":"pulse-hook-test"}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
+if [ -f "$TH/.claude/zaiquota/.turn-pulse-hook-test" ]; then
+  ok "hook: pre stamps the per-session turn flag"
+else
+  bad "hook: pre stamps the per-session turn flag"
+fi
+printf '{"session_id":"pulse-hook-test"}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-hook.sh post >/dev/null 2>&1
+if [ ! -f "$TH/.claude/zaiquota/.turn-pulse-hook-test" ]; then
+  ok "hook: post clears the turn flag"
+else
+  bad "hook: post clears the turn flag"
+fi
+rm -rf "$TH"
 # guard: every path INTO the stable dir in the wiring must resolve through the
 # full fallback chain — ZAI_QUOTA_DIR, then CLAUDE_CONFIG_DIR, then ~/.claude.
 # A bare joined path would silently split code (installed dir) from data and
