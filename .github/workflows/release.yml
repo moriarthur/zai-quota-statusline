@@ -13,6 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Install pinned shellcheck (match local dev version)
+        run: |
+          curl -sSL -o /tmp/sc.tar.xz https://github.com/koalaman/shellcheck/releases/download/v0.8.0/shellcheck-v0.8.0.linux.x86_64.tar.xz
+          tar -xJf /tmp/sc.tar.xz -C /tmp
+          sudo install -m755 /tmp/shellcheck-v0.8.0/shellcheck /usr/local/bin/shellcheck
+
       - name: Smoke tests (no skips allowed in CI)
         env:
           CI: 'true'
