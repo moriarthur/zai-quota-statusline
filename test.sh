@@ -90,11 +90,11 @@ else
 fi
 rm -rf "$TH"
 
-# ---- hook: the lock actually excludes (fixed name + PID liveness) ----
-# live holder -> contender skips without fetching
-TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota/.fetch.lock"
+# ---- hook: the lock actually excludes (PID-symlink format) ----
+# live holder (current symlink format) -> contender skips without fetching
+TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota"
 sleep 30 & HOLDER=$!
-printf '%s\n' "$HOLDER" > "$TH/.claude/zaiquota/.fetch.lock/pid"
+ln -s "$HOLDER" "$TH/.claude/zaiquota/.fetch.lock"
 printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
 if ! grep -q "force fetch" "$TH/.claude/zaiquota/hook.log" 2>/dev/null \
   && grep -q "skip: fetch already in flight" "$TH/.claude/zaiquota/hook.log" 2>/dev/null; then
@@ -104,11 +104,24 @@ else
 fi
 kill "$HOLDER" 2>/dev/null; rm -rf "$TH"
 
+# live holder (pre-0.1.7 directory format) -> still honored, contender skips
+TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota/.fetch.lock"
+sleep 30 & HOLDER=$!
+printf '%s\n' "$HOLDER" > "$TH/.claude/zaiquota/.fetch.lock/pid"
+printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
+if ! grep -q "force fetch" "$TH/.claude/zaiquota/hook.log" 2>/dev/null \
+  && grep -q "skip: fetch already in flight" "$TH/.claude/zaiquota/hook.log" 2>/dev/null; then
+  ok "hook: legacy dir lock is still honored"
+else
+  bad "hook: legacy dir lock is still honored"
+fi
+kill "$HOLDER" 2>/dev/null; rm -rf "$TH"
+
 # dead holder -> contender reclaims and fetches
-TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota" "$TH/.claude/zaiquota/.fetch.lock"
+TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota"
 sleep 0.2 & DEAD=$!
 wait "$DEAD" 2>/dev/null   # a PID that certainly has no live process
-printf '%s\n' "$DEAD" > "$TH/.claude/zaiquota/.fetch.lock/pid"
+ln -s "$DEAD" "$TH/.claude/zaiquota/.fetch.lock"
 printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
 if grep -q "force fetch" "$TH/.claude/zaiquota/hook.log" 2>/dev/null; then
   ok "hook: dead lock is reclaimed and the fetch runs"

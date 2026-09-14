@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.7 — 2026-09-14
+Close the last lock TOCTOU. The lock is now a symlink whose target is the
+holder's PID: claim and PID publication happen in the same atomic
+symlink(2) call, so a contender can never observe a claimed-but-unstamped
+lock — the 300 ms re-check window of 0.1.6 is gone entirely. The
+pre-0.1.7 directory format is still honored and reclaimed. A six-way
+parallel stress run yields exactly one fetch; regression tests cover the
+symlink format, the legacy directory format, and dead-holder reclaim.
+
 ## 0.1.6 — 2026-09-14
 Fix the fetch lock's mutual exclusion (third audit pass). The 0.1.5
 timestamp-named lock let processes starting in different seconds fetch in

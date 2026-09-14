@@ -6,9 +6,9 @@
 #   quota-hook.sh session  <- SessionStart    (startup/resume/clear)
 #
 # Registered in ~/.claude/settings.json with "async": true, so Claude Code runs
-# it in the background and it never blocks prompt processing. An atomic
-# mkdir-based lock guarantees at most one fetch at a time across ALL sessions,
-# on every platform (flock is not available everywhere).
+# it in the background and it never blocks prompt processing. A PID-symlink
+# lock (atomic claim + publication in one syscall) guarantees at most one
+# fetch at a time across ALL sessions, on every platform.
 #
 # Event-aware dedup window (ZAI_HOOK_DEDUP_SEC, default 8s):
 #   - pre/session skip if ANY fetch happened within the window (a just-finished
@@ -39,33 +39,29 @@ logsize=0
 
 now=$(date +%s)
 
-# Cross-session single-fetch guarantee: the lock is a FIXED-NAME directory
-# (mkdir is atomic everywhere), so every process competes for the same
-# identity. It holds the holder's PID: a contender skips while that PID is
-# alive and reclaims when it is gone. A lock without a PID means we raced
-# the holder's stamping — re-check briefly, then treat as a crashed claim.
+# Cross-session single-fetch guarantee. The lock is a FIXED-NAME symlink
+# whose target is the holder's PID: symlink(2) is atomic and publishes the
+# PID in the same operation as the claim, so there is no claim/stamp window.
+# A contender skips while the PID is alive and reclaims when it is gone.
+# The pre-0.1.7 directory format (pid inside the dir) is still honored.
 LOCK="$DIR/.fetch.lock"
-if ! mkdir "$LOCK" 2>/dev/null; then
-  holder=$(cat "$LOCK/pid" 2>/dev/null || true)
-  if [ -z "$holder" ]; then
-    for _ in 1 2 3 4 5 6; do
-      sleep 0.05
-      holder=$(cat "$LOCK/pid" 2>/dev/null || true)
-      [ -n "$holder" ] && break
-    done
-  fi
-  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
-    echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
-    exit 0
-  fi
-  # no live holder: a crashed claim (or a pre-0.1.6 lock format) — reclaim
-  rm -rf "$LOCK"
-  if ! mkdir "$LOCK" 2>/dev/null; then
-    echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
-    exit 0
-  fi
+holder=""
+if [ -L "$LOCK" ]; then
+  holder=$(readlink "$LOCK" 2>/dev/null)          # current format: target = PID
+elif [ -d "$LOCK" ]; then
+  holder=$(cat "$LOCK/pid" 2>/dev/null)           # legacy directory format
 fi
-printf '%s\n' "$$" >"$LOCK/pid"
+if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+  echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
+  exit 0
+fi
+# no live holder: crashed claim, stale or legacy lock — reclaim and claim.
+# ln -s is atomic; a competing claim simply fails, so this stays exclusive.
+rm -rf "$LOCK"
+if ! ln -s "$$" "$LOCK" 2>/dev/null; then
+  echo "$(date '+%F %T') $EV skip: fetch already in flight" >>"$LOG"
+  exit 0
+fi
 trap 'rm -rf "$LOCK"' EXIT   # release on every exit path once held
 
 last=0 src=""

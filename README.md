@@ -32,8 +32,9 @@ per prompt/turn cycle, nothing in between.
 ## Requirements
 
 - `bash` 3.2+, `jq`, `curl` — stock on Linux and WSL; on macOS `brew install jq`
-- No platform-specific locking tools: the fetch lock is an atomic `mkdir`, so
-  Linux, WSL and macOS behave identically; on Windows use WSL
+- No platform-specific locking tools: the fetch lock is a PID-symlink claimed
+  with a single atomic `symlink(2)` call, so Linux, WSL and macOS behave
+  identically; on Windows use WSL
 
 ## Install (plugin)
 
