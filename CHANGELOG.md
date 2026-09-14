@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10 — 2026-09-14
+Statusline readability fix: remaining-time tokens separate their unit groups
+with a space — `2h 45m`, `1d 4h` — instead of the glued `2h45m`/`1d4h`.
+Single-unit values (`12m`) are unchanged. Covered by a regression test.
+
 ## 0.1.9 — 2026-09-14
 Close the fifth-audit finding: `ZAI_QUOTA_DIR` is now honored end-to-end, not
 just by the scripts' internals. The hook registrations, the statusline's

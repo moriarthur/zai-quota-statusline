@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Custom Claude Code statusline — single line:
 #
-#   <pill: dot + model> | 5h <bar> 9% 2h39m · 7d <bar> 77% 1d4h · context left 85% · $5.14
+#   <pill: dot + model> | 5h <bar> 9% 2h 39m · 7d <bar> 77% 1d 4h · context left 85% · $5.14
 #
 # Model chip uses Nerd Font rounded caps U+E0B6/U+E0B4 (ZAI_SB_PLAIN=1 renders a
 # plain "● model" chip instead). Bars are thin lines: heavy U+2501 fill (colored)
@@ -104,11 +104,11 @@ if [ -f "$CACHE" ]; then
 fi
 
 now=$(date +%s)
-remain() { # epoch -> "3h39m" / "1d5h" / "12m"
+remain() { # epoch -> "3h 39m" / "1d 5h" / "12m"
   local r=$(( ${1:-0} - now )); [ "$r" -lt 0 ] && r=0
   local d=$(( r / 86400 )) h=$(( (r % 86400) / 3600 )) m=$(( (r % 3600) / 60 ))
-  if   [ "$d" -gt 0 ]; then printf '%dd%dh' "$d" "$h"
-  elif [ "$h" -gt 0 ]; then printf '%dh%dm' "$h" "$m"
+  if   [ "$d" -gt 0 ]; then printf '%dd %dh' "$d" "$h"
+  elif [ "$h" -gt 0 ]; then printf '%dh %dm' "$h" "$m"
   else                      printf '%dm' "$m"; fi
 }
 

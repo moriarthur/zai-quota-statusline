@@ -119,6 +119,21 @@ else
   bad "statusline: labels follow window number, not reset order"
 fi
 rm -f "$FIX2"
+
+# ---- statusline: remaining time separates unit groups ----
+# regression: "2h45m"/"1d4h" read as one glued token; expect "2h 45m"/"1d 4h".
+# offsets carry +30s so a second or two of test drift never crosses a boundary
+FIX4=$(mktemp)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[
+     {type:"TOKENS_LIMIT",percentage:30,number:5,unit:1,nextResetTime:(($ts+9930)*1000)},
+     {type:"TOKENS_LIMIT",percentage:60,number:7,unit:3,nextResetTime:(($ts+104130)*1000)}]}}' > "$FIX4"
+out=$(printf '%s' "$IN" | env ZAI_SB_CACHE="$FIX4" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
+if [[ "$out" == *"2h 45m"* && "$out" == *"1d 4h"* ]]; then
+  ok "statusline: remaining time separates units (\"2h 45m\", \"1d 4h\")"
+else
+  bad "statusline: remaining time separates units (\"2h 45m\", \"1d 4h\")"
+fi
+rm -f "$FIX4"
 ESC=$(printf '\033')
 # \033[2J on purpose: the suite's ANSI-stripper only masks m-terminated SGR
 # codes, so a clear-screen escape in the output would still be detected
