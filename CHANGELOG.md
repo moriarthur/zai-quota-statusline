@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.11 — 2026-09-14
+Fix inverted severity colors: the status line now uses xterm-256 cube palette
+codes (65 / 173 / 131) exclusively instead of free-form truecolor. Diagnosed
+with a pixel-level calibration strip: some TUI statusline render paths
+quantize truecolor to the 6x6x6 cube (each channel via round(c/51)), and that
+rounding pushed the ≥80% red's green channel up (77→135) until it rendered
+brighter and warmer than the 50–79% orange — red and orange visually swapped.
+On-cube colors are identity-mapped by such quantizers, so severity now reads
+correctly everywhere. Documented in the README.
+
 ## 0.1.10 — 2026-09-14
 Statusline readability fix: remaining-time tokens separate their unit groups
 with a space — `2h 45m`, `1d 4h` — instead of the glued `2h45m`/`1d4h`.

@@ -18,18 +18,15 @@ SHOW_AGE=${ZAI_SB_AGE:-0}
 PLAIN=${ZAI_SB_PLAIN:-0}   # 1 = render without Nerd Font pill caps
 
 c_dim=$'\033[90m'; c_r=$'\033[0m'
-# Claude brand palette. Exact hexes on truecolor terminals, nearest 256-color
-# codes otherwise. 256 green is 65 (#5F875F sage), NOT the mathematically
-# nearest 101 (#87875F) — that one reads khaki next to warm Crail orange.
-if [ "${COLORTERM:-}" = truecolor ] || [ "${COLORTERM:-}" = 24bit ]; then
-  C_GREEN='38;2;120;140;93'    # #788C5D — Anthropic green
-  C_ORANGE='38;2;217;119;87'   # #D97757 — Claude orange (Crail)
-  C_RED='38;2;191;77;67'       # #BF4D43 — muted brick red (no official brand red; Crail-adjacent)
-else
-  C_GREEN='38;5;65'            # ≈ #5F875F
-  C_ORANGE='38;5;173'          # ≈ #D7875F
-  C_RED='38;5;131'             # ≈ #AF5F5F
-fi
+# Palette: xterm-256 cube colors ONLY (65/173/131), never free-form truecolor.
+# Some TUI statusline render paths quantize any truecolor to the 6x6x6 cube
+# (each channel -> round(c/51) of {0,95,135,175,215,255}), which rounded the
+# dark red's green channel UP (77 -> 135) and turned it into a brighter orange
+# than the 50-79% tier — inverting severity on screen. On-cube colors are
+# identity-mapped by such quantizers, so what we pick is what renders.
+C_GREEN='38;5;65'     # (95,135,95)  sage
+C_ORANGE='38;5;173'   # (215,135,95) amber
+C_RED='38;5;131'      # (175,95,95)  brick-rose
 PL=$''; PR=$''         # pill caps (model chip)
 DOT=$'●'                       # status dot in the chip, colored by usage degree
 HEAVY=$'━'; LIGHT=$'─'    # bar: heavy fill / light track

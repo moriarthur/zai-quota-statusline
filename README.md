@@ -7,10 +7,17 @@ Event-driven Z.AI / GLM quota monitoring for [Claude Code](https://claude.com/cl
 prompt and again when the turn finishes, so the statusline always shows fresh numbers.
 
 **Design goal:** the line should feel *native to Claude Code*. Everything lives in the CLI
-you already work in — a model chip with a usage-colored dot, usage bars in Claude's own
-brand palette (green → orange → red; exact hexes on truecolor terminals), context-left and
+you already work in — a model chip with a usage-colored dot, usage bars in a green → orange →
+red severity scale (xterm-256 cube colors, see below), context-left and
 session cost — visible in real time, with no manual refresh requests and no browser
 dashboard.
+
+> **Why 256-color palette codes?** Some terminal render paths (e.g. a TUI redrawing the
+> status line through a 256-color backend) quantize any truecolor to the xterm cube —
+> each channel snapped via `round(c/51)`. That rounding can push a dark red's green
+> channel *up* until it renders brighter than the orange tier, visually inverting
+> severity. Colors already on the cube (`38;5;65/173/131`) are identity-mapped by such
+> quantizers, so the status line looks the same everywhere.
 
 ```
  ● GLM-5.3-Flash | 5h ━━━━━━──── 60% 36d2h · 7d ━━━━━━━─── 77% 43d3h · context left 38% · $5.10
