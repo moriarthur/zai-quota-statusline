@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh\" && \"$HOME/.claude/zaiquota/quota-hook.sh\" session",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh\" && \"${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}/quota-hook.sh\" session",
             "timeout": 20,
             "async": true
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/zaiquota/quota-hook.sh pre",
+            "command": "\"${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}/quota-hook.sh\" pre",
             "timeout": 20,
             "async": true
           }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/zaiquota/quota-hook.sh post",
+            "command": "\"${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}/quota-hook.sh\" post",
             "timeout": 20,
             "async": true
           }

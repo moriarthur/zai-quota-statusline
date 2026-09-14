@@ -77,6 +77,11 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
 > **No Nerd Font?** Set `ZAI_SB_PLAIN=1` in the status line command to skip the pill caps:
 > `"command": "ZAI_SB_PLAIN=1 bash $HOME/.claude/zaiquota/zai-statusline.sh"`.
 
+> **Custom base directory?** `export ZAI_QUOTA_DIR=/path/to/dir` in your shell profile
+> (exported, so hooks and the statusline inherit it) and point the status line at the
+> same place: `"command": "bash ${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}/zai-statusline.sh"`.
+> Everything else — sync, hooks, `/refresh` — picks the directory up from the environment.
+
 ## Manual install (no plugin)
 
 Copy the scripts from [`scripts/`](scripts/) to `~/.claude/zaiquota/`, make them
@@ -109,7 +114,7 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 | `ZAI_SB_AGE` | `0` | `1` = append cache-age (`· 5m`) to the line |
 | `ZAI_SB_PLAIN` | `0` | `1` = plain glyphs, no Nerd Font required |
 | `ZAI_SB_CACHE` | `~/.claude/zaiquota/quota.cache` | Cache file location |
-| `ZAI_QUOTA_DIR` | `~/.claude/zaiquota` | Base directory for scripts, cache, config and logs |
+| `ZAI_QUOTA_DIR` | `~/.claude/zaiquota` | Base directory for scripts, cache, config and logs (export it — hooks and the statusline inherit it) |
 
 ## Files
 

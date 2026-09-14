@@ -83,6 +83,28 @@ else
 fi
 rm -rf "$TH"
 
+# ---- ZAI_QUOTA_DIR: advertised in README, so the wiring must honor it ----
+# a hardcoded stable path in an entry point silently splits code (installed
+# dir) from data (default dir) and the statusline shows "quota n/a"
+FIX3=$(mktemp -d)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:42,nextResetTime:(($ts+3600)*1000)}]}}' > "$FIX3/quota.cache"
+out=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIX3" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
+if [[ "$out" == *"42%"* ]]; then
+  ok "statusline: ZAI_QUOTA_DIR resolves the cache"
+else
+  bad "statusline: ZAI_QUOTA_DIR resolves the cache"
+fi
+rm -rf "$FIX3"
+# guard: every path INTO the stable dir in the wiring sits inside a
+# ${ZAI_QUOTA_DIR:-...} fallback on the same line (prose mentions of the
+# default path without a trailing slash are fine)
+if grep -n '\.claude/zaiquota/' hooks/hooks.json commands/refresh.md scripts/zai-statusline.sh \
+     | grep -v 'ZAI_QUOTA_DIR:-' | grep -q .; then
+  bad "wiring: stable path hardcoded outside ZAI_QUOTA_DIR fallback"
+else
+  ok "wiring: stable path always behind ZAI_QUOTA_DIR fallback"
+fi
+
 # ---- statusline: window labels follow number, not reset order ----
 # the 7-day window (number=7) resets SOONER than the 5-hour one: labels must
 # still read 5h first, 7d second

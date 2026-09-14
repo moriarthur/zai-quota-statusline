@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.9 — 2026-09-14
+Close the fifth-audit finding: `ZAI_QUOTA_DIR` is now honored end-to-end, not
+just by the scripts' internals. The hook registrations, the statusline's
+default cache path and `/zai-quota:refresh` all resolve the base directory via
+`${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}`, so an override can no longer split
+code (installed dir) from data (default dir) and leave the statusline at
+"quota n/a". README documents the override as a first-class option (export it
+so hooks and the statusline inherit it, point `statusLine.command` at the same
+directory), and the test suite guards the wiring: every path into the stable
+directory must sit inside a `${ZAI_QUOTA_DIR:-...}` fallback, plus a functional
+check that the statusline reads a cache placed under an overridden directory.
+CI now verifies the pinned shellcheck tarball's sha256 before installing it.
+
 ## 0.1.8 — 2026-09-14
 Fourth-pass audit fixes. Session-start sync installs scripts atomically
 (copy to a process-unique temp name, rename into place — a reader can
