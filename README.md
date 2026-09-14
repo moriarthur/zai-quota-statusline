@@ -84,10 +84,17 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
 > **No Nerd Font?** Set `ZAI_SB_PLAIN=1` in the status line command to skip the pill caps:
 > `"command": "ZAI_SB_PLAIN=1 bash $HOME/.claude/zaiquota/zai-statusline.sh"`.
 
-> **Custom base directory?** `export ZAI_QUOTA_DIR=/path/to/dir` in your shell profile
-> (exported, so hooks and the statusline inherit it) and point the status line at the
-> same place: `"command": "bash ${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}/zai-statusline.sh"`.
+> **Custom base directory?** The base directory resolves as
+> `${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}`: an explicit
+> `export ZAI_QUOTA_DIR=/path/to/dir` wins; otherwise it follows `CLAUDE_CONFIG_DIR`
+> (a relocated Claude config root); otherwise `~/.claude/zaiquota`. Export your var of
+> choice in the shell profile and point the status line at the same place:
+> `"command": "bash ${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/zai-statusline.sh"`.
 > Everything else — sync, hooks, `/refresh` — picks the directory up from the environment.
+>
+> **Already using `CLAUDE_CONFIG_DIR` (since 0.1.12)?** Move your existing data once so
+> the plugin finds its token and cache at the new default:
+> `mv ~/.claude/zaiquota "$CLAUDE_CONFIG_DIR/zaiquota"`.
 
 ## Manual install (no plugin)
 
@@ -120,8 +127,9 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 | `ZAI_SB_SEGMENTS` | `10` | Bar length in cells |
 | `ZAI_SB_AGE` | `0` | `1` = append cache-age (`· 5m`) to the line |
 | `ZAI_SB_PLAIN` | `0` | `1` = plain glyphs, no Nerd Font required |
-| `ZAI_SB_CACHE` | `~/.claude/zaiquota/quota.cache` | Cache file location |
-| `ZAI_QUOTA_DIR` | `~/.claude/zaiquota` | Base directory for scripts, cache, config and logs (export it — hooks and the statusline inherit it) |
+| `ZAI_SB_CACHE` | `<base>/quota.cache` | Cache file location |
+| `ZAI_QUOTA_DIR` | `$CLAUDE_CONFIG_DIR/zaiquota`, else `~/.claude/zaiquota` | Base directory for scripts, cache, config and logs (export it — hooks and the statusline inherit it) |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's config root; the plugin's base directory defaults to `$CLAUDE_CONFIG_DIR/zaiquota` when `ZAI_QUOTA_DIR` is unset |
 
 ## Files
 

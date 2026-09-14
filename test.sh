@@ -51,6 +51,10 @@ jq -n --argjson ts "$NOW" --argjson a 9 --argjson b 77 \
   --argjson ra "$(( (NOW + 10800) * 1000 ))" --argjson rb "$(( (NOW + 172800) * 1000 ))" \
   '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:$a,nextResetTime:$ra},{type:"TOKENS_LIMIT",percentage:$b,nextResetTime:$rb}]}}' > "$FIX"
 
+# `sb` only ever runs through check/absent's "$@" indirection, which shellcheck
+# cannot see; shellcheck >=0.9 flags the definition as unreachable (0.8.0, our
+# pinned dev version, predates that check). Silence the false positive.
+# shellcheck disable=SC2317
 sb() { printf '%s' "$1" | env ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh; }
 
 IN='{"model":{"display_name":"glm-5.3-flash[1m]"},"context_window":{"used_percentage":62},"cost":{"total_cost_usd":5.1}}'
@@ -95,14 +99,43 @@ else
   bad "statusline: ZAI_QUOTA_DIR resolves the cache"
 fi
 rm -rf "$FIX3"
-# guard: every path INTO the stable dir in the wiring sits inside a
-# ${ZAI_QUOTA_DIR:-...} fallback on the same line (prose mentions of the
-# default path without a trailing slash are fine)
-if grep -n '\.claude/zaiquota/' hooks/hooks.json commands/refresh.md scripts/zai-statusline.sh \
-     | grep -v 'ZAI_QUOTA_DIR:-' | grep -q .; then
-  bad "wiring: stable path hardcoded outside ZAI_QUOTA_DIR fallback"
+
+# ---- CLAUDE_CONFIG_DIR: relocating the whole Claude config moves the base dir ----
+# default chain: ZAI_QUOTA_DIR > $CLAUDE_CONFIG_DIR/zaiquota > ~/.claude/zaiquota
+FIX5=$(mktemp -d); mkdir -p "$FIX5/zaiquota"
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:7,nextResetTime:(($ts+3600)*1000)}]}}' > "$FIX5/zaiquota/quota.cache"
+out=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE -u ZAI_QUOTA_DIR CLAUDE_CONFIG_DIR="$FIX5" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
+if [[ "$out" == *"7%"* ]]; then
+  ok "statusline: CLAUDE_CONFIG_DIR resolves the cache"
 else
-  ok "wiring: stable path always behind ZAI_QUOTA_DIR fallback"
+  bad "statusline: CLAUDE_CONFIG_DIR resolves the cache"
+fi
+FIX6=$(mktemp -d)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:13,nextResetTime:(($ts+3600)*1000)}]}}' > "$FIX6/quota.cache"
+out=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIX6" CLAUDE_CONFIG_DIR="$FIX5" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
+if [[ "$out" == *"13%"* ]]; then
+  ok "statusline: ZAI_QUOTA_DIR overrides CLAUDE_CONFIG_DIR"
+else
+  bad "statusline: ZAI_QUOTA_DIR overrides CLAUDE_CONFIG_DIR"
+fi
+rm -rf "$FIX5" "$FIX6"
+# guard: every path INTO the stable dir in the wiring must resolve through the
+# full fallback chain — ZAI_QUOTA_DIR, then CLAUDE_CONFIG_DIR, then ~/.claude.
+# A bare joined path would silently split code (installed dir) from data and
+# the statusline would show "quota n/a"
+# the chain is a literal for grep -F, never expanded here:
+# shellcheck disable=SC2016
+CHAIN='${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}'
+chainmiss=""
+for spec in "hooks/hooks.json 3" "commands/refresh.md 2" "scripts/zai-statusline.sh 1" \
+            "scripts/sync.sh 1" "scripts/quota-fetch.sh 1" "scripts/quota-hook.sh 1"; do
+  f=${spec% *}; want=${spec#* }
+  [ "$(grep -cF -- "$CHAIN" "$f")" = "$want" ] || chainmiss="$chainmiss $f"
+done
+if [ -n "$chainmiss" ]; then
+  bad "wiring: fallback chain wrong in:$chainmiss"
+else
+  ok "wiring: every entry point resolves through the full fallback chain"
 fi
 
 # ---- statusline: window labels follow number, not reset order ----
@@ -144,7 +177,7 @@ absent "statusline: mapping values sanitized (no ANSI)" "$ESC" \
 # ---- hook: isolated HOME, no credentials -> logs the attempt, still exit 0 ----
 # (env -u strips any inherited ANTHROPIC_* so the test never touches the network)
 TH=$(mktemp -d)
-printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
+printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
 rc=$?
 if [ "$rc" -eq 0 ] && grep -q "pre: force fetch" "$TH/.claude/zaiquota/hook.log" 2>/dev/null; then
   ok "hook: pre fires and logs (exit 0)"
@@ -163,7 +196,7 @@ rm -rf "$TH"
 TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota"
 sleep 30 & HOLDER=$!
 ln -s "$HOLDER" "$TH/.claude/zaiquota/.fetch.lock"
-printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
+printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
 if ! grep -q "force fetch" "$TH/.claude/zaiquota/hook.log" 2>/dev/null \
   && grep -q "skip: fetch already in flight" "$TH/.claude/zaiquota/hook.log" 2>/dev/null; then
   ok "hook: live lock skips the fetch"
@@ -176,7 +209,7 @@ kill "$HOLDER" 2>/dev/null; rm -rf "$TH"
 TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota/.fetch.lock"
 sleep 30 & HOLDER=$!
 printf '%s\n' "$HOLDER" > "$TH/.claude/zaiquota/.fetch.lock/pid"
-printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
+printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
 if ! grep -q "force fetch" "$TH/.claude/zaiquota/hook.log" 2>/dev/null \
   && grep -q "skip: fetch already in flight" "$TH/.claude/zaiquota/hook.log" 2>/dev/null; then
   ok "hook: legacy dir lock is still honored"
@@ -190,7 +223,7 @@ TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota"
 sleep 0.2 & DEAD=$!
 wait "$DEAD" 2>/dev/null   # a PID that certainly has no live process
 ln -s "$DEAD" "$TH/.claude/zaiquota/.fetch.lock"
-printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
+printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1
 if grep -q "force fetch" "$TH/.claude/zaiquota/hook.log" 2>/dev/null; then
   ok "hook: dead lock is reclaimed and the fetch runs"
 else
@@ -200,9 +233,9 @@ rm -rf "$TH"
 
 # concurrent starts -> exactly one fetch
 TH=$(mktemp -d); mkdir -p "$TH/.claude/zaiquota"
-printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1 &
+printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1 &
 P1=$!
-printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1 &
+printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-hook.sh pre >/dev/null 2>&1 &
 P2=$!
 wait "$P1" "$P2"
 n=$(grep -c "force fetch" "$TH/.claude/zaiquota/hook.log" 2>/dev/null || true)
@@ -216,7 +249,7 @@ rm -rf "$TH"
 
 # ---- fetcher: missing credentials fail loudly ----
 TH=$(mktemp -d)
-out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
 if [ "$rc" -ne 0 ] && [[ "$out" == *"ANTHROPIC_AUTH_TOKEN"* ]]; then
   ok "fetcher: missing token fails with a clear message"
 else
@@ -229,14 +262,14 @@ rm -rf "$TH"
 TH=$(mktemp -d)
 mkdir -p "$TH/.claude/zaiquota"
 printf 'ANTHROPIC_BASE_URL=https://127.0.0.1:1/api/anthropic\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' > "$TH/.claude/zaiquota/config.env"
-out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
 if [ "$rc" -ne 0 ] && [[ "$out" != *"DUMMY_TOKEN_VALUE"* ]]; then
   ok "security: failed fetch never echoes the token"
 else
   bad "security: failed fetch never echoes the token (exit $rc)"
 fi
 printf 'ANTHROPIC_BASE_URL=http://insecure.example.com/api/anthropic\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' > "$TH/.claude/zaiquota/config.env"
-out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
 if [ "$rc" -ne 0 ] && [[ "$out" == *"https://"* ]] && [[ "$out" != *"DUMMY_TOKEN_VALUE"* ]]; then
   ok "security: plain-http base URL is refused"
 else
@@ -265,14 +298,14 @@ if command -v python3 >/dev/null 2>&1; then
   else
     printf '{"data":null}' > "$ENDPOINT"   # 200 with a junk body
     printf 'ANTHROPIC_BASE_URL=http://127.0.0.1:%s\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' "$PORT" > "$TH/.claude/zaiquota/config.env"
-    out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+    out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
     if [ "$rc" -ne 0 ] && [ ! -f "$TH/.claude/zaiquota/quota.cache" ] && [[ "$out" == *"unexpected response shape"* ]]; then
       ok "security: junk 200 leaves the cache untouched"
     else
       bad "security: junk 200 leaves the cache untouched (rc=$rc)"
     fi
     printf '{"data":{"limits":[]}}' > "$ENDPOINT"   # a valid 200
-    env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL HOME="$TH" bash scripts/quota-fetch.sh --force >/dev/null 2>&1
+    env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-fetch.sh --force >/dev/null 2>&1
     cacheperm=$(stat -c %a "$TH/.claude/zaiquota/quota.cache" 2>/dev/null || stat -f %Lp "$TH/.claude/zaiquota/quota.cache" 2>/dev/null)
     if [ -f "$TH/.claude/zaiquota/quota.cache" ] && [ "$cacheperm" = "600" ]; then
       ok "security: valid 200 writes a 0600 cache"
@@ -287,9 +320,10 @@ else
 fi
 
 # ---- hooks.json contract ----
-# the next grep looks for a literal ${...} string:
+# the next greps look for literal ${...} strings:
 # shellcheck disable=SC2016
-if grep -q '${CLAUDE_PLUGIN_ROOT}/scripts' hooks/hooks.json && grep -q '\.claude/zaiquota' hooks/hooks.json; then
+if grep -q '${CLAUDE_PLUGIN_ROOT}/scripts' hooks/hooks.json \
+   && grep -qF '${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}' hooks/hooks.json; then
   ok "hooks.json: plugin root + stable path contract"
 else
   bad "hooks.json: plugin root + stable path contract"

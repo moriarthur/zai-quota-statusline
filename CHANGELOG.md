@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.12 — 2026-09-14
+Close issue #1: the base-directory default now follows a relocated Claude
+config. Every entry point (hook registrations, `/zai-quota:refresh`, the
+statusline's cache path, sync/fetch/hook internals) resolves
+`${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}` — an explicit
+`ZAI_QUOTA_DIR` still wins; otherwise the directory follows `CLAUDE_CONFIG_DIR`;
+otherwise `~/.claude/zaiquota`. Existing `CLAUDE_CONFIG_DIR` users: move the
+directory once (`mv ~/.claude/zaiquota "$CLAUDE_CONFIG_DIR/zaiquota"`) — the
+README says so up front, per the plain-precedence decision on the issue.
+The wiring guard now asserts the full chain in all six entry points plus a
+functional precedence check (`ZAI_QUOTA_DIR` > `CLAUDE_CONFIG_DIR`), and the
+hook/fetch/security tests neutralize a developer's exported
+`CLAUDE_CONFIG_DIR`/`ZAI_QUOTA_DIR` so local env can't skew results. Also:
+silence SC2317 on the indirectly-invoked `sb` test helper — shellcheck ≥0.9
+(which our pinned 0.8.0 predates) flags it as unreachable, which is what turned
+the v0.1.3/v0.1.8 tag builds red.
+
 ## 0.1.11 — 2026-09-14
 Fix inverted severity colors: the status line now uses xterm-256 cube palette
 codes (65 / 173 / 131) exclusively instead of free-form truecolor. Diagnosed

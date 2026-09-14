@@ -7,7 +7,7 @@
 # half-written script, and two sessions syncing at once never interleave.
 set -eu
 
-DEST="${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}"
+DEST="${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [ -d "$SRC" ] || { echo "ERROR: source scripts not found at $SRC" >&2; exit 1; }

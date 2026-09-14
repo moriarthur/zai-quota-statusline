@@ -12,7 +12,7 @@
 set -o pipefail
 
 IN=$(cat)
-CACHE="${ZAI_SB_CACHE:-${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}/quota.cache}"
+CACHE="${ZAI_SB_CACHE:-${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota.cache}"
 SEGMENTS=${ZAI_SB_SEGMENTS:-10}
 SHOW_AGE=${ZAI_SB_AGE:-0}
 PLAIN=${ZAI_SB_PLAIN:-0}   # 1 = render without Nerd Font pill caps

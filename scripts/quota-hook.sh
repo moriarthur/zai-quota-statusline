@@ -20,7 +20,7 @@
 set -u
 umask 077   # log, lock and state files are user-private by default
 
-DIR="${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}"
+DIR="${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EV="${1:-pre}"
 case "$EV" in pre|post|session) ;; *) exit 0 ;; esac
