@@ -11,7 +11,7 @@
 set -euo pipefail
 umask 077   # cache and any temp files are user-private by default
 
-DIR="$HOME/.claude/zaiquota"
+DIR="${ZAI_QUOTA_DIR:-$HOME/.claude/zaiquota}"
 CACHE="$DIR/quota.cache"
 MIN_INTERVAL=${ZAI_REFRESH_MIN:-600}
 

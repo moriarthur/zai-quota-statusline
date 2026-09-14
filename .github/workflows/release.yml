@@ -8,7 +8,23 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Smoke tests (no skips allowed in CI)
+        env:
+          CI: 'true'
+        run: ./test.sh
+
+      - name: Validate plugin + marketplace manifests
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.270
+          claude plugin validate .
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

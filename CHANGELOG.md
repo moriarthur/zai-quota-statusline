@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.8 — 2026-09-14
+Fourth-pass audit fixes. Session-start sync installs scripts atomically
+(copy to a process-unique temp name, rename into place — a reader can
+never run a half-written script) via the new `scripts/sync.sh`. The
+release workflow now runs the smoke suite and manifest validation before
+publishing, and the Claude Code CLI used by CI is pinned to 2.1.270 for
+reproducibility. Statusline labels the 5h/7d windows by the limits'
+`number` field when available, so a weekly reset happening sooner than
+the 5-hour one no longer swaps the labels. `ZAI_QUOTA_DIR` overrides the
+base directory. README lock description updated; skipped tests fail CI
+explicitly so coverage can't silently shrink.
+
 ## 0.1.7 — 2026-09-14
 Close the last lock TOCTOU. The lock is now a symlink whose target is the
 holder's PID: claim and PID publication happen in the same atomic

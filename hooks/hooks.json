@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "mkdir -p \"$HOME/.claude/zaiquota\" && cp -f \"${CLAUDE_PLUGIN_ROOT}/scripts/\"*.sh \"$HOME/.claude/zaiquota/\" && chmod +x \"$HOME/.claude/zaiquota/\"*.sh && \"$HOME/.claude/zaiquota/quota-hook.sh\" session",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh\" && \"$HOME/.claude/zaiquota/quota-hook.sh\" session",
             "timeout": 20,
             "async": true
           }

@@ -4,9 +4,10 @@
 set -u
 cd "$(dirname "$0")" || exit 1
 
-pass=0 fail=0
+pass=0 fail=0 skip=0
 ok()  { printf 'ok   %s\n' "$1"; pass=$((pass + 1)); }
 bad() { printf 'FAIL %s\n' "$1"; fail=$((fail + 1)); }
+skipped() { printf 'skip %s\n' "$1"; skip=$((skip + 1)); }
 
 strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 
@@ -35,8 +36,12 @@ done
 for j in .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json; do
   if jq empty "$j" 2>/dev/null; then ok "jq $j"; else bad "jq $j"; fi
 done
-if shellcheck scripts/*.sh test.sh 2>/dev/null; then ok "shellcheck"; else
-  command -v shellcheck >/dev/null && bad "shellcheck" || printf 'skip shellcheck (not installed)\n'
+if shellcheck scripts/*.sh test.sh 2>/dev/null; then
+  ok "shellcheck"
+elif command -v shellcheck >/dev/null; then
+  bad "shellcheck"
+else
+  skipped "shellcheck (not installed)"
 fi
 
 # ---- statusline fixtures ----
@@ -66,6 +71,32 @@ else
   bad "statusline: numeric garbage stays silent"
 fi
 rm -f "$FIX" /tmp/zai_ci_out /tmp/zai_ci_err
+
+# ---- sync: atomic install into the stable path ----
+TH=$(mktemp -d)
+if ZAI_QUOTA_DIR="$TH/zq" bash scripts/sync.sh >/dev/null 2>&1 \
+  && [ -x "$TH/zq/quota-fetch.sh" ] && [ -x "$TH/zq/quota-hook.sh" ] \
+  && [ -x "$TH/zq/zai-statusline.sh" ] && [ -x "$TH/zq/sync.sh" ]; then
+  ok "sync: installs all scripts executable"
+else
+  bad "sync: installs all scripts executable"
+fi
+rm -rf "$TH"
+
+# ---- statusline: window labels follow number, not reset order ----
+# the 7-day window (number=7) resets SOONER than the 5-hour one: labels must
+# still read 5h first, 7d second
+FIX2=$(mktemp)
+jq -n --argjson ts "$NOW"   '{fetched_at:$ts, data:{limits:[
+     {type:"TOKENS_LIMIT",percentage:10,number:7,unit:3,nextResetTime:(($ts+3600)*1000)},
+     {type:"TOKENS_LIMIT",percentage:90,number:5,unit:1,nextResetTime:(($ts+172800)*1000)}]}}' > "$FIX2"
+out=$(printf '%s' "$IN" | env ZAI_SB_CACHE="$FIX2" bash scripts/zai-statusline.sh 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g')
+if [[ "$out" == *'5h'*'90%'*'7d'* ]]; then
+  ok "statusline: labels follow window number, not reset order"
+else
+  bad "statusline: labels follow window number, not reset order"
+fi
+rm -f "$FIX2"
 ESC=$(printf '\033')
 # \033[2J on purpose: the suite's ANSI-stripper only masks m-terminated SGR
 # codes, so a clear-screen escape in the output would still be detected
@@ -193,7 +224,7 @@ if command -v python3 >/dev/null 2>&1; then
   if [ -z "$PORT" ]; then
     # the environment cannot bind a test server (sandbox/CI restriction) —
     # this is environmental, not a defect; skip rather than fail
-    printf 'skip security: junk-200 (test server could not bind)\n'
+    skipped "junk-200 (test server could not bind)"
   else
     printf '{"data":null}' > "$ENDPOINT"   # 200 with a junk body
     printf 'ANTHROPIC_BASE_URL=http://127.0.0.1:%s\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' "$PORT" > "$TH/.claude/zaiquota/config.env"
@@ -215,7 +246,7 @@ if command -v python3 >/dev/null 2>&1; then
   kill "$SRVPID" 2>/dev/null
   rm -rf "$TH"
 else
-  printf 'skip security: junk-200 test (python3 missing)\n'
+  skipped "junk-200 (python3 missing)"
 fi
 
 # ---- hooks.json contract ----
@@ -227,5 +258,10 @@ else
   bad "hooks.json: plugin root + stable path contract"
 fi
 
-printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" -eq 0 ]
+printf '\n%d passed, %d failed, %d skipped\n' "$pass" "$fail" "$skip"
+if [ "$fail" -gt 0 ]; then exit 1; fi
+if [ "${CI:-}" = "true" ] && [ "$skip" -gt 0 ]; then
+  echo "FAIL: tests were skipped in CI — coverage there must be complete" >&2
+  exit 1
+fi
+exit 0

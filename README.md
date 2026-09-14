@@ -24,10 +24,10 @@ prompt submitted ──▶ UserPromptSubmit hook ─▶ quota fetch (async) ─�
         fresh quota in statusline ◀── Stop hook ─▶ quota fetch ◀── turn ends
 ```
 
-The hooks are `async`, so they **never add latency** to prompt processing. An event-aware
-dedup window (`flock` + 8 s, tunable) collapses duplicate hook firings and parallel
-sessions; the fetch itself is a single plain GET to Z.AI's plan-usage endpoint — one call
-per prompt/turn cycle, nothing in between.
+The hooks are `async`, so they **never add latency** to prompt processing. A PID-symlink
+lock plus an event-aware dedup window (8 s, tunable) collapse duplicate hook firings and
+parallel sessions; the fetch itself is a single plain GET to Z.AI's plan-usage endpoint —
+one call per prompt/turn cycle, nothing in between.
 
 ## Requirements
 
@@ -79,7 +79,7 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
 
 ## Manual install (no plugin)
 
-Copy the three scripts from [`scripts/`](scripts/) to `~/.claude/zaiquota/`, make them
+Copy the scripts from [`scripts/`](scripts/) to `~/.claude/zaiquota/`, make them
 executable, create `config.env` as above, then merge into `~/.claude/settings.json`:
 
 ```json
@@ -109,6 +109,7 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 | `ZAI_SB_AGE` | `0` | `1` = append cache-age (`· 5m`) to the line |
 | `ZAI_SB_PLAIN` | `0` | `1` = plain glyphs, no Nerd Font required |
 | `ZAI_SB_CACHE` | `~/.claude/zaiquota/quota.cache` | Cache file location |
+| `ZAI_QUOTA_DIR` | `~/.claude/zaiquota` | Base directory for scripts, cache, config and logs |
 
 ## Files
 
@@ -116,8 +117,9 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 |---|---|
 | `hooks/hooks.json` | Plugin hook registration (session-start sync + event-driven refresh) |
 | `commands/refresh.md` | `/zai-quota:refresh` — force one fetch from the CLI |
+| `scripts/sync.sh` | Session-start installer: atomically syncs the scripts into the stable path |
 | `scripts/quota-fetch.sh` | Single GET to the Z.AI usage endpoint, response-shape validation, atomic cache write |
-| `scripts/quota-hook.sh` | Hook wrapper: async-safe, atomic lock, event-aware dedup, log + rotation |
+| `scripts/quota-hook.sh` | Hook wrapper: async-safe, PID-symlink lock, event-aware dedup, log + rotation |
 | `scripts/zai-statusline.sh` | Statusline renderer: model chip, 5h/7d bars, context-left, cost |
 
 ## Security

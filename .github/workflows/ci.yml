@@ -16,5 +16,5 @@ jobs:
 
       - name: Validate plugin + marketplace manifests
         run: |
-          npm install -g @anthropic-ai/claude-code
+          npm install -g @anthropic-ai/claude-code@2.1.270
           claude plugin validate .

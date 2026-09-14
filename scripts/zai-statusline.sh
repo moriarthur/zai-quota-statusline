@@ -76,15 +76,26 @@ model=$(printf '%s' "$model" \
 h5p=0 h5r=0 wp=0 wr=0 fetched=0
 if [ -f "$CACHE" ]; then
   IFS=$'\t' read -r h5p h5r wp wr fetched < <(
+    # Labels assume the standard plan: two TOKENS_LIMIT windows of 5 hours and
+    # 7 days. Near the weekly reset, reset-time order would swap the labels —
+    # so when both windows carry distinct `number` fields (5 and 7) we label
+    # by number; otherwise (e.g. CREDIT_LIMIT on lite plans) reset-time order
+    # is the best available signal.
     jq -r '(.data.limits // []) as $l
       | ([$l[] | select(.type == "TOKENS_LIMIT")] | sort_by(.nextResetTime)) as $tok
       | (if ($tok | length) > 0 then $tok
          else [$l[] | select(.type == "CREDIT_LIMIT")] | sort_by(.nextResetTime)
          end) as $t
-      | [ (($t[0].percentage // 0) | floor),
-          ((($t[0].nextResetTime // 0) / 1000) | floor),
-          (($t[1].percentage // 0) | floor),
-          ((($t[1].nextResetTime // 0) / 1000) | floor),
+      | (if ($tok | length) == 2
+           and ($t[0].number != null) and ($t[1].number != null)
+           and $t[0].number != $t[1].number
+           and (($t[0].number == 5) or ($t[1].number == 5))
+         then (if $t[0].number == 5 then $t else [$t[1], $t[0]] end)
+         else $t end) as $o
+      | [ (($o[0].percentage // 0) | floor),
+          ((($o[0].nextResetTime // 0) / 1000) | floor),
+          (($o[1].percentage // 0) | floor),
+          ((($o[1].nextResetTime // 0) / 1000) | floor),
           (.fetched_at // 0) ]
       | @tsv' "$CACHE" 2>/dev/null
   )
