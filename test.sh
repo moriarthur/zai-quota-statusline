@@ -231,57 +231,52 @@ else
 fi
 rm -rf "$FIX5" "$FIX6"
 
-# ---- statusline: the dot breathes through on-cube luma steps while live ----
-# The breath is three same-hue 256-color codes per usage tier — dim, mid, bright,
-# mid — one step per second (the host render floor: refreshInterval min 1 s), no
-# SGR faint (an attribute render paths drop). Checks read RAW output (the suite's
-# ANSI-stripper would erase the very thing under test); 21% usage = green tier =
-# ramp 65 (idle/dim), 108 (mid), 151 (bright). ZAI_SB_TEST_TICK freezes the clock
-# in whole seconds.
+# ---- statusline: the dot breathes between two on-cube tones while live ----
+# The breath oscillates the tier's two same-hue 256-color codes — tier color,
+# one step up — low, high, high, low, two seconds per tone (the host render
+# floor: refreshInterval min 1 s), no SGR faint (an attribute render paths
+# drop). Checks read RAW output (the suite's ANSI-stripper would erase the very
+# thing under test); 21% usage = green tier = 65 (idle/low), 108 (high).
+# ZAI_SB_TEST_TICK freezes the clock in whole seconds.
 FIXD=$(mktemp -d)
 jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:21,nextResetTime:(($ts+3600)*1000)}]}}' > "$FIXD/quota.cache"
 printf '%s\n' "$NOW" > "$FIXD/.turn"
-dim=$'\033[38;5;65m'; mid=$'\033[38;5;108m'; bright=$'\033[38;5;151m'; olddim=$'\033[2;38;5;'
+low=$'\033[38;5;65m'; high=$'\033[38;5;108m'; oldpeak=$'\033[38;5;151m'; faint=$'\033[2;38;5;'
 sb_tick() { printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK="$1" bash scripts/zai-statusline.sh; }
 raw=$(sb_tick 0)
-if [[ "$raw" == *"$dim"* && "$raw" != *"$mid"* && "$raw" != *"$bright"* ]]; then
-  ok "statusline: breath phase 0 is the base step (no SGR faint)"
+if [[ "$raw" == *"$low"* && "$raw" != *"$high"* ]]; then
+  ok "statusline: breath phase 0 is the tier tone"
 else
-  bad "statusline: breath phase 0 is the base step (no SGR faint)"
-fi
-if [[ "$raw" != *"$olddim"* ]]; then
-  ok "statusline: breath never emits the old SGR-faint dim"
-else
-  bad "statusline: breath never emits the old SGR-faint dim"
+  bad "statusline: breath phase 0 is the tier tone"
 fi
 raw=$(sb_tick 1)
-if [[ "$raw" == *"$mid"* && "$raw" != *"$bright"* ]]; then
-  ok "statusline: breath phase 1 steps the dot up to mid"
+if [[ "$raw" == *"$high"* && "$raw" != *"$oldpeak"* && "$raw" != *"$faint"* ]]; then
+  ok "statusline: breath phase 1 peaks one tone up (old bright step and SGR faint gone)"
 else
-  bad "statusline: breath phase 1 steps the dot up to mid"
+  bad "statusline: breath phase 1 peaks one tone up (old bright step and SGR faint gone)"
 fi
 raw=$(sb_tick 2)
-if [[ "$raw" == *"$bright"* && "$raw" != *"$mid"* ]]; then
-  ok "statusline: breath phase 2 peaks the dot at bright"
+if [[ "$raw" == *"$high"* ]]; then
+  ok "statusline: breath phase 2 holds the peak"
 else
-  bad "statusline: breath phase 2 peaks the dot at bright"
+  bad "statusline: breath phase 2 holds the peak"
 fi
 raw=$(sb_tick 3)
-if [[ "$raw" == *"$mid"* && "$raw" != *"$bright"* ]]; then
-  ok "statusline: breath phase 3 falls back to mid (4 s cycle)"
+if [[ "$raw" == *"$low"* && "$raw" != *"$high"* ]]; then
+  ok "statusline: breath phase 3 is back at the tier tone"
 else
-  bad "statusline: breath phase 3 falls back to mid (4 s cycle)"
+  bad "statusline: breath phase 3 is back at the tier tone"
 fi
 rm -f "$FIXD/.turn"   # idle case: the breath tests above left their flag behind
 raw=$(sb_tick 1)
-if [[ "$raw" != *"$mid"* && "$raw" != *"$bright"* ]]; then
+if [[ "$raw" != *"$high"* ]]; then
   ok "statusline: idle dot is static (no turn flag)"
 else
   bad "statusline: idle dot is static (no turn flag)"
 fi
 printf '0\n' > "$FIXD/.turn"   # stamp older than the 24h sanity cap
 raw=$(sb_tick 1)
-if [[ "$raw" != *"$mid"* && "$raw" != *"$bright"* ]]; then
+if [[ "$raw" != *"$high"* ]]; then
   ok "statusline: stale turn flag does not breathe"
 else
   bad "statusline: stale turn flag does not breathe"
@@ -290,14 +285,14 @@ fi
 IN_SID='{"model":{"display_name":"X"},"session_id":"sb-pulse-test"}'
 printf '%s\n' "$NOW" > "$FIXD/.turn-sb-pulse-test"
 raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=1 bash scripts/zai-statusline.sh)
-if [[ "$raw" == *"$mid"* ]]; then
+if [[ "$raw" == *"$high"* ]]; then
   ok "statusline: session-scoped turn flag breathes its own session"
 else
   bad "statusline: session-scoped turn flag breathes its own session"
 fi
 rm -f "$FIXD/.turn-sb-pulse-test"
 raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=1 bash scripts/zai-statusline.sh)
-if [[ "$raw" != *"$mid"* ]]; then
+if [[ "$raw" != *"$high"* ]]; then
   ok "statusline: another session's flag does not breathe this one"
 else
   bad "statusline: another session's flag does not breathe this one"
@@ -479,10 +474,10 @@ jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[
      {type:"CREDIT_LIMIT",number:5,unit:3,percentage:35,nextResetTime:(($ts+4800)*1000)},
      {type:"CREDIT_LIMIT",number:1,unit:6,percentage:10,nextResetTime:(($ts+525600)*1000)}]}}' > "$FIX6"
 out=$(printf '%s' "$IN" | env ZAI_QUOTA_DIR="$TDIR" ZAI_SB_CACHE="$FIX6" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
-if [[ "$out" == *'35%'*'10%'* ]] && [[ "$out" != *'5h'* ]] && [[ "$out" != *'7d'* ]] && [[ "$out" != *'quota'* ]]; then
-  ok "statusline: live Z.AI credit payload renders both windows bare, reset-sorted"
+if [[ "$out" == *'5h'*'35%'*'7d'*'10%'* ]]; then
+  ok "statusline: live Z.AI credit payload keeps the 5h/7d labels (renamed token windows)"
 else
-  bad "statusline: live Z.AI credit payload renders both windows bare, reset-sorted"
+  bad "statusline: live Z.AI credit payload keeps the 5h/7d labels (renamed token windows)"
 fi
 rm -f "$FIX6"
 rm -rf "$TDIR"

@@ -45,15 +45,16 @@ num() { # sanitize anything numeric-ish into a plain non-negative integer
   case "${1:-}" in ''|*[!0-9]*) printf 0 ;; *) printf '%s' "$1" ;; esac
 }
 
-# Breath ramp: three on-cube luma steps of the tier's own hue (dim, mid, bright)
-# for the busy-dot breath. Explicit 38;5;N codes rather than SGR 2 — faint is
-# exactly the attribute some render paths drop, and on-cube codes pass the
-# quantizing backends noted above through unchanged.
-ramp() { # $1=tier SGR params -> R_D R_M R_B
+# Breath ramp: two on-cube tones of the tier's own hue — the tier color and one
+# ladder step up. The peak is deliberately one tone below the previous three-step
+# ramp's top (that step read too bright next to Claude's own subtle spinner);
+# explicit 38;5;N codes, never SGR faint — faint is exactly the attribute some
+# render paths drop, and on-cube codes pass the quantizing backends unchanged.
+ramp() { # $1=tier SGR params -> R_LO R_HI
   case "$1" in
-    "$C_GREEN")  R_D=65;  R_M=108; R_B=151 ;;
-    "$C_ORANGE") R_D=137; R_M=173; R_B=216 ;;
-    *)           R_D=95;  R_M=131; R_B=174 ;;
+    "$C_GREEN")  R_LO=65;  R_HI=108 ;;
+    "$C_ORANGE") R_LO=137; R_HI=173 ;;
+    *)           R_LO=95;  R_HI=131 ;;
   esac
 }
 
@@ -225,25 +226,18 @@ bar() { # pct [fg] -> thin line: heavy fill (colored) + light track (dim)
 # ---- quota segments ----
 q=''
 if [ "$h5r" -gt 0 ]; then
+  l1='5h '; l2='7d '   # labels carry their own trailing space
   if [ "$src" = "c" ]; then
     # Z.AI renamed the plan windows to CREDIT_LIMIT (observed 2026-09-15):
-    # the same percentage/nextResetTime data, but no verifiable window names —
-    # the credit `number`/`unit` fields do not map to durations (unit 3 with a
-    # reset 1 h away). Render both bars bare, reset-sorted; the times label
-    # themselves.
-    q=$(printf '%s \033[%sm%s%%\033[39m %s%s ' \
-      "$(bar "$h5p")" "$(col "$h5p")" "$h5p" "$c_dim" "$(remain "$h5r")")
-    if [ "$wr" -gt 0 ]; then
-      q+=$(printf '%s·%s %s \033[%sm%s%%\033[39m %s%s ' \
-        "$c_dim" "$c_r" "$(bar "$wp")" "$(col "$wp")" "$wp" "$c_dim" "$(remain "$wr")")
-    fi
-  else
-    q=$(printf '5h %s \033[%sm%s%%\033[39m %s%s ' \
-      "$(bar "$h5p")" "$(col "$h5p")" "$h5p" "$c_dim" "$(remain "$h5r")")
-    if [ "$wr" -gt 0 ]; then
-      q+=$(printf '%s·%s 7d %s \033[%sm%s%%\033[39m %s%s ' \
-        "$c_dim" "$c_r" "$(bar "$wp")" "$(col "$wp")" "$wp" "$c_dim" "$(remain "$wr")")
-    fi
+    # same two windows, same data, so with both present the familiar 5h/7d
+    # labels apply; a lone credit window has no verifiable name — bare bar
+    [ "$wr" -gt 0 ] || { l1=''; l2=''; }
+  fi
+  q=$(printf '%s%s \033[%sm%s%%\033[39m %s%s ' \
+    "$l1" "$(bar "$h5p")" "$(col "$h5p")" "$h5p" "$c_dim" "$(remain "$h5r")")
+  if [ "$wr" -gt 0 ]; then
+    q+=$(printf '%s·%s %s%s \033[%sm%s%%\033[39m %s%s ' \
+      "$c_dim" "$c_r" "$l2" "$(bar "$wp")" "$(col "$wp")" "$wp" "$c_dim" "$(remain "$wr")")
   fi
   if [ "$SHOW_AGE" = 1 ] && [ "$fetched" -gt 0 ]; then
     q+=$(printf '%s- %sm%s ' "$c_dim" "$(( (now - fetched) / 60 ))" "$c_r")
@@ -341,20 +335,18 @@ if [ -n "$cost" ]; then
 fi
 
 # ---- turn breath + model chip ----
-# While a turn is live the dot breathes through the tier's three on-cube luma
-# steps — dim, mid, bright, mid — one step per second, a calm 4 s cycle at the
-# host's render floor (statusLine.refreshInterval, min 1 s); faster event-driven
-# re-renders within the same second land on the same step. The chip is plain
-# everywhere: "● model", the dot carrying the color.
+# While a turn is live the dot breathes between the tier's two on-cube tones —
+# low, high, high, low — two seconds each at the host's render floor
+# (statusLine.refreshInterval, min 1 s); faster event-driven re-renders within
+# the same second land on the same tone. Idle: the tier color, static. The chip
+# is plain everywhere: "● model", the dot carrying the color.
 glc=$(col "$h5p")
 if [ "$busy" = 1 ]; then
   tick=${ZAI_SB_TEST_TICK:-$now}   # test seam: freeze the clock (whole seconds)
   ramp "$glc"
   case $(( tick % 4 )) in
-    0) glc="38;5;$R_D" ;;
-    1) glc="38;5;$R_M" ;;
-    2) glc="38;5;$R_B" ;;
-    *) glc="38;5;$R_M" ;;
+    1 | 2) glc="38;5;$R_HI" ;;   # in, hold
+    *)     glc="38;5;$R_LO" ;;   # out, hold
   esac
 fi
 chip=$(printf '\033[%sm%s\033[0m %s' "$glc" "$DOT" "$model")

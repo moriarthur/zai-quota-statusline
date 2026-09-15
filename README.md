@@ -19,9 +19,10 @@ dashboard.
 > each channel snapped via `round(c/51)`. That rounding can push a dark red's green
 > channel *up* until it renders brighter than the orange tier, visually inverting
 > severity. Colors already on the cube are identity-mapped by such quantizers, so the
-> status line looks the same everywhere: the tier colors `38;5;65/173/131`, the busy
-> dot's breath ramps in the same hues (`65/108/151`, `137/173/216`, `95/131/174`) —
-> explicit `38;5;N` codes rather than SGR faint, another attribute render paths drop.
+> status line looks the same everywhere: the tier colors `38;5;65/173/131`, and the
+> busy dot breathing between two same-hue tones per tier (`65↔108`, `137↔173`,
+> `95↔131`) — explicit `38;5;N` codes rather than SGR faint, another attribute render
+> paths drop.
 
 ```
 ● GLM-5.3-Flash | 5h ━━━━━━──── 60% 2h 14m · 7d ━━━━━━━─── 77% 4d 3h · context left 38% · $5.10
@@ -121,13 +122,13 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
 
    `refreshInterval` (seconds) re-runs the statusline command on a steady beat — this is
    the documented Claude Code setting for periodic statusline updates, minimum 1 s. It is
-   what lets the dot breathe (while a turn is live it steps through three same-hue
-   on-cube shades — dim, mid, bright, mid — one step per second at this render floor)
-   and what repaints the line when the startup cache lands a moment after the first
-   render (see step 3). Quota **fetching** stays event-driven — the timer only re-renders
-   the line from the cache, it never calls the API. Without it the line only re-renders
-   on conversation events: a `quota n/a` drawn before the cache exists would sit there
-   until your first prompt.
+   what lets the dot breathe (while a turn is live it steps between two same-hue
+   on-cube tones — one up, two seconds, back down — one step per second at this render
+   floor) and what repaints the line when the startup cache lands a moment after the
+   first render (see step 3). Quota **fetching** stays event-driven — the timer only
+   re-renders the line from the cache, it never calls the API. Without it the line only
+   re-renders on conversation events: a `quota n/a` drawn before the cache exists would
+   sit there until your first prompt.
 
 3. Restart Claude Code. On session start the plugin syncs its scripts to the stable path
    `~/.claude/zaiquota/` (so plugin updates propagate automatically) and fires the first

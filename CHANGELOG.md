@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.16 — 2026-09-15
+Two display calibrations on top of the payload flip. With both windows present
+the renamed `CREDIT_LIMIT` payload is the familiar plan pair, so the 5h/7d
+labels are back; a lone credit window still renders as a bare bar — its name
+is not verifiable. And the busy dot's breath peaks one tone lower now: two
+same-hue on-cube tones per tier (green 65↔108, amber 137↔173, red 95↔131),
+two seconds each — the previous top step read too bright next to Claude's
+own spinner.
+
 ## 0.1.15 — 2026-09-15
 Same-day follow-up, and the documented risk arrived on schedule: Z.AI
 flipped the plan windows in the usage payload from `TOKENS_LIMIT` to
