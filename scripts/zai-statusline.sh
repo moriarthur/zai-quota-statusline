@@ -45,12 +45,14 @@ num() { # sanitize anything numeric-ish into a plain non-negative integer
   case "${1:-}" in ''|*[!0-9]*) printf 0 ;; *) printf '%s' "$1" ;; esac
 }
 
-# Breath ramp: two on-cube tones of the tier's own hue — the tier color and one
-# ladder step up. The peak is deliberately one tone below the previous three-step
-# ramp's top (that step read too bright next to Claude's own subtle spinner);
-# explicit 38;5;N codes, never SGR faint — faint is exactly the attribute some
-# render paths drop, and on-cube codes pass the quantizing backends unchanged.
-ramp() { # $1=tier SGR params -> R_LO R_HI
+# Breath ramp: three steps — a hueless dim gray (the dot reading as "off"),
+# then two on-cube tones of the tier's own hue: the tier color and one ladder
+# step up. The peak is deliberately one tone below the pre-0.1.16 ramp's top
+# (that step read too bright next to Claude's own subtle spinner); explicit
+# 38;5;N codes, never SGR faint — faint is exactly the attribute some render
+# paths drop, and on-cube codes pass the quantizing backends unchanged.
+ramp() { # $1=tier SGR params -> R_DIM R_LO R_HI
+  R_DIM=240                 # (88,88,88) — the "out" endpoint, deliberately hueless
   case "$1" in
     "$C_GREEN")  R_LO=65;  R_HI=108 ;;
     "$C_ORANGE") R_LO=137; R_HI=173 ;;
@@ -339,18 +341,21 @@ if [ -n "$cost" ]; then
 fi
 
 # ---- turn breath + model chip ----
-# While a turn is live the dot breathes between the tier's two on-cube tones —
-# low, high, high, low — two seconds each at the host's render floor
-# (statusLine.refreshInterval, min 1 s); faster event-driven re-renders within
-# the same second land on the same tone. Idle: the tier color, static. The chip
-# is plain everywhere: "● model", the dot carrying the color.
+# While a turn is live the dot breathes across three steps — dim gray, the
+# tier color, one tone up — dim, mid, bright, mid, two seconds each at the
+# host's render floor (statusLine.refreshInterval, min 1 s); faster
+# event-driven re-renders within the same second land on the same step.
+# Idle: the tier color, static. The chip is plain everywhere: "● model", the
+# dot carrying the color.
 glc=$(col "$h5p")
 if [ "$busy" = 1 ]; then
   tick=${ZAI_SB_TEST_TICK:-$now}   # test seam: freeze the clock (whole seconds)
   ramp "$glc"
   case $(( tick % 4 )) in
-    1 | 2) glc="38;5;$R_HI" ;;   # in, hold
-    *)     glc="38;5;$R_LO" ;;   # out, hold
+    0)     glc="38;5;$R_DIM" ;;   # dim — the gray "off" end
+    1)     glc="38;5;$R_LO" ;;   # mid — the tier color
+    2)     glc="38;5;$R_HI" ;;   # bright
+    *)     glc="38;5;$R_LO" ;;   # mid again
   esac
 fi
 chip=$(printf '\033[%sm%s\033[0m %s' "$glc" "$DOT" "$model")

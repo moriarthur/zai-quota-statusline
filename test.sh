@@ -292,41 +292,43 @@ else
 fi
 rm -rf "$FIX5" "$FIX6"
 
-# ---- statusline: the dot breathes between two on-cube tones while live ----
-# The breath oscillates the tier's two same-hue 256-color codes — tier color,
-# one step up — low, high, high, low, two seconds per tone (the host render
-# floor: refreshInterval min 1 s), no SGR faint (an attribute render paths
-# drop). Checks read RAW output (the suite's ANSI-stripper would erase the very
-# thing under test); 21% usage = green tier = 65 (idle/low), 108 (high).
+# ---- statusline: the dot breathes across three steps while live ----
+# The breath walks a three-tone ramp — dim gray (the "off" end), the tier's
+# 256-color code, one ladder step up — dim, mid, bright, mid, two seconds per
+# step (the host render floor: refreshInterval min 1 s), no SGR faint (an
+# attribute render paths drop). Checks read RAW output (the suite's
+# ANSI-stripper would erase the very thing under test); 21% usage = green tier
+# = dim 240, mid 65 (idle/mid; the quota bar carries 65 too, so phase
+# assertions lean on the ABSENCE of 108), bright 108.
 # ZAI_SB_TEST_TICK freezes the clock in whole seconds.
 FIXD=$(mktemp -d)
 jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:21,nextResetTime:(($ts+3600)*1000)}]}}' > "$FIXD/quota.cache"
 printf '%s\n' "$NOW" > "$FIXD/.turn"
-low=$'\033[38;5;65m'; high=$'\033[38;5;108m'; oldpeak=$'\033[38;5;151m'; faint=$'\033[2;38;5;'
+low=$'\033[38;5;65m'; high=$'\033[38;5;108m'; dim=$'\033[38;5;240m'; oldpeak=$'\033[38;5;151m'; faint=$'\033[2;38;5;'
 sb_tick() { printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK="$1" bash scripts/zai-statusline.sh; }
 raw=$(sb_tick 0)
-if [[ "$raw" == *"$low"* && "$raw" != *"$high"* ]]; then
-  ok "statusline: breath phase 0 is the tier tone"
+if [[ "$raw" == *"$dim"* && "$raw" != *"$high"* ]]; then
+  ok "statusline: breath phase 0 is the dim gray"
 else
-  bad "statusline: breath phase 0 is the tier tone"
+  bad "statusline: breath phase 0 is the dim gray"
 fi
 raw=$(sb_tick 1)
-if [[ "$raw" == *"$high"* && "$raw" != *"$oldpeak"* && "$raw" != *"$faint"* ]]; then
-  ok "statusline: breath phase 1 peaks one tone up (old bright step and SGR faint gone)"
+if [[ "$raw" == *"$low"* && "$raw" != *"$high"* && "$raw" != *"$dim"* ]]; then
+  ok "statusline: breath phase 1 is the mid tier tone"
 else
-  bad "statusline: breath phase 1 peaks one tone up (old bright step and SGR faint gone)"
+  bad "statusline: breath phase 1 is the mid tier tone"
 fi
 raw=$(sb_tick 2)
-if [[ "$raw" == *"$high"* ]]; then
-  ok "statusline: breath phase 2 holds the peak"
+if [[ "$raw" == *"$high"* && "$raw" != *"$dim"* && "$raw" != *"$oldpeak"* && "$raw" != *"$faint"* ]]; then
+  ok "statusline: breath phase 2 peaks one tone up (old bright step and SGR faint gone)"
 else
-  bad "statusline: breath phase 2 holds the peak"
+  bad "statusline: breath phase 2 peaks one tone up (old bright step and SGR faint gone)"
 fi
 raw=$(sb_tick 3)
-if [[ "$raw" == *"$low"* && "$raw" != *"$high"* ]]; then
-  ok "statusline: breath phase 3 is back at the tier tone"
+if [[ "$raw" == *"$low"* && "$raw" != *"$high"* && "$raw" != *"$dim"* ]]; then
+  ok "statusline: breath phase 3 is back at the mid tone"
 else
-  bad "statusline: breath phase 3 is back at the tier tone"
+  bad "statusline: breath phase 3 is back at the mid tone"
 fi
 rm -f "$FIXD/.turn"   # idle case: the breath tests above left their flag behind
 raw=$(sb_tick 1)
@@ -342,10 +344,11 @@ if [[ "$raw" != *"$high"* ]]; then
 else
   bad "statusline: stale turn flag does not breathe"
 fi
-# per-session flag: only the owning session breathes
+# per-session flag: only the owning session breathes (checked at the bright
+# phase, tick 2 — the only tone whose presence is unambiguous)
 IN_SID='{"model":{"display_name":"X"},"session_id":"sb-pulse-test"}'
 printf '%s\n' "$NOW" > "$FIXD/.turn-sb-pulse-test"
-raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=1 bash scripts/zai-statusline.sh)
+raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2 bash scripts/zai-statusline.sh)
 if [[ "$raw" == *"$high"* ]]; then
   ok "statusline: session-scoped turn flag breathes its own session"
 else

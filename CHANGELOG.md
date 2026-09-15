@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.19 — 2026-09-16
+The busy dot's breath is a three-step walk again: a hueless dim gray (`38;5;240`,
+the dot reading as switched off), then the tier color, then one ladder step up —
+dim, mid, bright, mid, two seconds a step. The mid and bright tones are exactly
+the two the previous releases calibrated; only the gray "out" endpoint is new,
+so the pulse now visibly leaves and returns to the color instead of hovering
+around it.
+
 ## 0.1.18 — 2026-09-16
 The `quota n/a` some users saw while the 5h window recharged is now self-healing.
 Root cause: mid-swap the API answers with a shape-valid but empty `limits` array,
