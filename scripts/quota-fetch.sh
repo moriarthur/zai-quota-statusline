@@ -114,6 +114,17 @@ if ! jq -e '(.data | type == "object") and (.data.limits | type == "array")' "$t
   exit 1
 fi
 
+# ---- an empty limits array is a transient snapshot, not data ----
+# Observed 2026-09-15: mid-swap of the 5h window the API answered with a
+# shape-valid `limits: []`. It renders as nothing, so it must never replace
+# the cache — the previous state on disk is strictly more informative — nor
+# seed a fake-looking empty one; the statusline's window-less self-heal covers
+# the recovery. Transient, not junk: this exits 0, the fetch itself succeeded.
+if ! jq -e '(.data.limits | length) > 0' "$tmp" >/dev/null 2>&1; then
+  echo "NOTE: empty limits (transient snapshot) — cache left untouched" >&2
+  exit 0
+fi
+
 # ---- atomic cache update: fetch timestamp + the .data object ----
 jq -c --argjson ts "$(date +%s)" '{fetched_at:$ts, data:.data}' "$tmp" > "$out"
 mv -f "$out" "$CACHE"

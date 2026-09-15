@@ -180,13 +180,17 @@ roll=0
 [ "$wr" -gt 0 ] && [ "$wr" -le "$now" ] && roll=1
 [ "$roll" = 1 ] && nudge
 
-# Missing cache: "quota n/a" can also mean the session hook never ran (killed
-# hook, missed install...). Only a genuinely absent cache FILE nudges — a
-# present-but-unparsable one may be an empty or unsupported quota response and
-# must be left alone — and only with credentials on disk, so an unconfigured
-# install never spawns. Shares the rollover stamp; the two triggers are
-# mutually exclusive (rollover needs a parsed cache).
-if [ ! -f "$CACHE" ] && [ -f "$DIR/config.env" ]; then
+# No usable windows: "quota n/a" can also mean the session hook never ran
+# (killed hook, missed install) — or the cache holds a payload with zero
+# renderable windows. Observed 2026-09-15: a shape-valid `limits: []` (the API
+# mid-swap of the 5h window) reached the cache and froze the line at n/a until
+# the next prompt; fetchers older than 0.1.18 could store it, and any future
+# shape that parses to nothing looks identical here. Only a fresh fetch can fix
+# such a render, so an absent OR window-less cache nudges — the shared stamp
+# keeps even a permanently empty shape at one GET per ZAI_ROLL_MIN — and only
+# with credentials on disk, so an unconfigured install never spawns. Mutually
+# exclusive with the rollover trigger above (that one needs a parsed window).
+if [ -f "$DIR/config.env" ] && { [ ! -f "$CACHE" ] || [ "$h5r" -eq 0 ]; }; then
   nudge
 fi
 

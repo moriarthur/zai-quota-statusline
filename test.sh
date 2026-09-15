@@ -581,14 +581,16 @@ else
 fi
 rm -rf "$TH"
 
-# ---- statusline: missing cache + config.env nudges one throttled fetch ----
+# ---- statusline: no usable windows + config.env nudges one throttled fetch ----
 # If the session hook never ran (killed, missed install), the first render sees
-# no cache at all; with credentials on disk it must nudge one background --force
-# fetch (same stamp/throttle as the rollover nudge) so the next render shows
-# data. A present-but-unparsable cache must NOT nudge (n/a may just be an empty
-# or unsupported quota response), and neither must an install without config.env.
-# config.env points at a closed loopback port, so the spawned fetch fails
-# instantly and never touches the network from the suite.
+# no cache at all; and a cache whose payload parses to ZERO windows (an unparsable
+# body, or the observed 2026-09-15 shape-valid `limits: []` mid-swap) renders n/a
+# forever on its own. Both mean only a fresh fetch can fix the render: with
+# credentials on disk they nudge one background --force fetch (same stamp/throttle
+# as the rollover nudge — a permanently empty shape costs one GET per minute, not
+# a loop); an install without config.env never spawns. config.env points at a
+# closed loopback port, so the spawned fetch fails instantly and never touches
+# the network from the suite.
 NH=$(mktemp -d)
 printf 'ANTHROPIC_AUTH_TOKEN=dummy-test-token\nANTHROPIC_BASE_URL=http://127.0.0.1:1\n' >"$NH/config.env"
 run_sb "$NH"
@@ -616,12 +618,37 @@ NH3=$(mktemp -d)
 printf 'not json at all' >"$NH3/quota.cache"
 printf 'ANTHROPIC_AUTH_TOKEN=dummy-test-token\nANTHROPIC_BASE_URL=http://127.0.0.1:1\n' >"$NH3/config.env"
 run_sb "$NH3"
-if [ ! -f "$NH3/.rollrefresh" ]; then
-  ok "self-heal: present-but-unparsable cache stays quiet"
+if [ -f "$NH3/.rollrefresh" ]; then
+  ok "self-heal: an unparsable cache nudges (zero windows can't heal alone)"
 else
-  bad "self-heal: present-but-unparsable cache stays quiet"
+  bad "self-heal: an unparsable cache nudges (zero windows can't heal alone)"
 fi
-rm -rf "$NH" "$NH2" "$NH3"
+p1=$(cat "$NH3/.rollrefresh" 2>/dev/null)
+run_sb "$NH3"
+p2=$(cat "$NH3/.rollrefresh" 2>/dev/null)
+if [ -n "$p1" ] && [ "$p1" = "$p2" ]; then
+  ok "self-heal: window-less re-renders within the minute do not re-nudge"
+else
+  bad "self-heal: window-less re-renders within the minute do not re-nudge"
+fi
+NH4=$(mktemp -d)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[]}}' >"$NH4/quota.cache"
+run_sb "$NH4"
+if [ ! -f "$NH4/.rollrefresh" ]; then
+  ok "self-heal: shape-valid but empty cache stays quiet without config.env"
+else
+  bad "self-heal: shape-valid but empty cache stays quiet without config.env"
+fi
+NH5=$(mktemp -d)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[]}}' >"$NH5/quota.cache"
+printf 'ANTHROPIC_AUTH_TOKEN=dummy-test-token\nANTHROPIC_BASE_URL=http://127.0.0.1:1\n' >"$NH5/config.env"
+run_sb "$NH5"
+if [ -f "$NH5/.rollrefresh" ]; then
+  ok "self-heal: a shape-valid empty cache nudges (the 0.1.16-era poison)"
+else
+  bad "self-heal: a shape-valid empty cache nudges (the 0.1.16-era poison)"
+fi
+rm -rf "$NH" "$NH2" "$NH3" "$NH4" "$NH5"
 
 # ---- statusline: the nudge claim is atomic across parallel renders ----
 # two Claude windows on one project render concurrently; a PID-symlink claim
@@ -845,13 +872,31 @@ if command -v python3 >/dev/null 2>&1; then
     else
       bad "security: junk 200 leaves the cache untouched (rc=$rc)"
     fi
-    printf '{"data":{"limits":[]}}' > "$ENDPOINT"   # a valid 200
+    printf '{"data":{"limits":[{"type":"TOKENS_LIMIT","percentage":9,"nextResetTime":123}]}}' > "$ENDPOINT"   # a valid 200
     env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-fetch.sh --force >/dev/null 2>&1
     cacheperm=$(stat -c %a "$TH/.claude/zaiquota/quota.cache" 2>/dev/null || stat -f %Lp "$TH/.claude/zaiquota/quota.cache" 2>/dev/null)
     if [ -f "$TH/.claude/zaiquota/quota.cache" ] && [ "$cacheperm" = "600" ]; then
       ok "security: valid 200 writes a 0600 cache"
     else
       bad "security: valid 200 writes a 0600 cache (perm=$cacheperm)"
+    fi
+    # ---- empty limits is a transient snapshot: rendered as nothing, so it is
+    # never stored — not over a good cache, and not as a fake-looking empty one
+    printf '{"data":{"limits":[]}}' > "$ENDPOINT"
+    printf '{"fetched_at":1,"data":{"limits":[{"type":"TOKENS_LIMIT","percentage":42,"nextResetTime":9}]}}' > "$TH/.claude/zaiquota/quota.cache"
+    out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"empty limits"* ]] \
+      && [ "$(cat "$TH/.claude/zaiquota/quota.cache")" = '{"fetched_at":1,"data":{"limits":[{"type":"TOKENS_LIMIT","percentage":42,"nextResetTime":9}]}}' ]; then
+      ok "fetcher: empty limits leaves a good cache untouched"
+    else
+      bad "fetcher: empty limits leaves a good cache untouched (rc=$rc)"
+    fi
+    rm -f "$TH/.claude/zaiquota/quota.cache"
+    out=$(env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR HOME="$TH" bash scripts/quota-fetch.sh --force 2>&1); rc=$?
+    if [ "$rc" -eq 0 ] && [ ! -f "$TH/.claude/zaiquota/quota.cache" ] && [[ "$out" == *"empty limits"* ]]; then
+      ok "fetcher: empty limits with no cache seeds nothing (n/a stays honest)"
+    else
+      bad "fetcher: empty limits with no cache seeds nothing (rc=$rc)"
     fi
   fi
   kill "$SRVPID" 2>/dev/null

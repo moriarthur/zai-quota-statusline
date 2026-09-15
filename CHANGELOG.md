@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.18 — 2026-09-16
+The `quota n/a` some users saw while the 5h window recharged is now self-healing.
+Root cause: mid-swap the API answers with a shape-valid but empty `limits` array,
+which the fetcher stored over the good cache — and nothing in the render path can
+recover from zero windows, so the line froze at n/a until the next prompt. The
+fetcher now treats an empty snapshot as transient and leaves the previous cache
+untouched (a 200 that says nothing is not an error); and the statusline's self-heal
+grew a third trigger — a cache with no usable windows nudges the same throttled
+background fetch the rollover path uses, healing caches poisoned by older versions
+at one GET per `ZAI_ROLL_MIN` at worst.
+
 ## 0.1.17 — 2026-09-16
 The stable copy of the scripts finally keeps itself current. Until now it only
 synced on session start, and since `/plugin update` and `/reload-plugins` never

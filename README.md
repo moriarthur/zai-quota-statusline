@@ -205,12 +205,15 @@ just never got redrawn. Work through these in order:
    `fetch FAILED` or an `ERROR:` line says why it didn't.
 3. Confirm the cache is there:
    `ls -l "${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota.cache"`.
-   If the cache file is missing while `config.env` exists, the statusline nudges one
-   throttled background fetch itself (same stamp and `ZAI_ROLL_MIN` window as the
-   rollover nudge), so a missed session hook self-heals on a later render. In the rare
-   case where the hook process died after writing its dedup state but before fetching,
-   `quota n/a` can persist for up to `ZAI_ROLL_MIN` seconds — a minute at the default,
-   while the line keeps re-rendering.
+   If the cache file is missing — or holds a payload with no usable windows — while
+   `config.env` exists, the statusline nudges one throttled background fetch itself
+   (same stamp and `ZAI_ROLL_MIN` window as the rollover nudge), so a missed session
+   hook self-heals on a later render. The fetcher, for its part, never stores an
+   empty `limits` snapshot: if the API answers mid-window-swap with `limits: []`, the
+   previous cache stays on screen and the very next successful fetch refreshes it. In
+   the rare case where the hook process died after writing its dedup state but before
+   fetching, `quota n/a` can persist for up to `ZAI_ROLL_MIN` seconds — a minute at
+   the default, while the line keeps re-rendering.
 4. If the cache still never appears, check `config.env`: a regular file owned by you
    containing `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` (permissions are tightened
    to `600` automatically on every fetch). Fetch errors explain themselves in `hook.log`.
