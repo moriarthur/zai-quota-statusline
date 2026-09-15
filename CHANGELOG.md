@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.17 — 2026-09-16
+The stable copy of the scripts finally keeps itself current. Until now it only
+synced on session start, and since `/plugin update` and `/reload-plugins` never
+re-fire that hook, a mid-session update left users on the previous version —
+pill caps, dead dot and all — until a restart or a manual sync. A parity check
+(`ensure-current.sh`) now runs from the plugin root on every prompt submit and
+turn end, chained with `;` so the quota hook after it always fires, and
+re-syncs the stable path in milliseconds when the installed plugin's scripts
+have moved ahead; a `sync:` line in `hook.log` records each resync and reports
+orphan files, which are never deleted (the stable directory may be a
+user-chosen one).
+
 ## 0.1.16 — 2026-09-15
 Two display calibrations on top of the payload flip. With both windows present
 the renamed `CREDIT_LIMIT` payload is the familiar plan pair, so the 5h/7d

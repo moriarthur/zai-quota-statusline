@@ -1,5 +1,5 @@
 {
-  "description": "Event-driven Z.AI quota refresh: a fast blocking one-liner syncs the scripts to a stable path on session start, the first quota fetch fires in the background (startup never waits on the network), and prompt submit / turn end refresh the cache event-driven.",
+  "description": "Event-driven Z.AI quota refresh: a fast blocking one-liner syncs the scripts to a stable path on session start, prompt submit / turn end re-sync that path when a plugin update landed mid-session and refresh the cache event-driven, and the first quota fetch fires in the background so startup never waits on the network.",
   "hooks": {
     "SessionStart": [
       {
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota-hook.sh\" pre",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ensure-current.sh\" ; \"${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota-hook.sh\" pre",
             "timeout": 20,
             "async": true
           }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota-hook.sh\" post",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ensure-current.sh\" ; \"${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota-hook.sh\" post",
             "timeout": 20,
             "async": true
           }

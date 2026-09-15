@@ -191,10 +191,71 @@ TH=$(mktemp -d)
 if ZAI_QUOTA_DIR="$TH/zq" bash scripts/sync.sh >/dev/null 2>&1 \
   && [ -x "$TH/zq/quota-fetch.sh" ] && [ -x "$TH/zq/quota-hook.sh" ] \
   && [ -x "$TH/zq/zai-statusline.sh" ] && [ -x "$TH/zq/sync.sh" ] \
-  && [ -x "$TH/zq/jqsh" ]; then
+  && [ -x "$TH/zq/ensure-current.sh" ] && [ -x "$TH/zq/jqsh" ]; then
   ok "sync: installs all scripts executable"
 else
   bad "sync: installs all scripts executable"
+fi
+rm -rf "$TH"
+
+# ---- ensure-current: re-syncs the stable path when the plugin moves ahead ----
+# the hook chain runs this from ${CLAUDE_PLUGIN_ROOT} before every quota hook,
+# so a mid-session /plugin update propagates without a session restart.
+# parity(): "mismatch" when any source file is missing from or differs in DEST
+parity() { # <dest> <src>
+  local d=$1 s=$2 f stale=0
+  for f in "$s"/*.sh "$s"/jqsh; do
+    [ -f "$f" ] || continue
+    cmp -s "$f" "$d/$(basename "$f")" || stale=1
+  done
+  [ "$stale" -eq 0 ] || echo mismatch
+}
+TH=$(mktemp -d)
+ZAI_QUOTA_DIR="$TH/zq" bash scripts/sync.sh >/dev/null 2>&1
+rc=0
+ZAI_QUOTA_DIR="$TH/zq" bash scripts/ensure-current.sh >/dev/null 2>&1 || rc=1
+if [ "$rc" -eq 0 ] && [ -z "$(parity "$TH/zq" scripts)" ] && [ ! -e "$TH/zq/hook.log" ]; then
+  ok "ensure-current: in-sync run touches nothing, no log line"
+else
+  bad "ensure-current: in-sync run touches nothing, no log line"
+fi
+rm -rf "$TH"
+
+TH=$(mktemp -d)
+ZAI_QUOTA_DIR="$TH/zq" bash scripts/sync.sh >/dev/null 2>&1
+printf '#!/usr/bin/env bash\n# stale pre-0.1.14 pill build\n' >"$TH/zq/zai-statusline.sh"
+rc=0
+ZAI_QUOTA_DIR="$TH/zq" bash scripts/ensure-current.sh >/dev/null 2>&1 || rc=1
+if [ "$rc" -eq 0 ] && [ -z "$(parity "$TH/zq" scripts)" ] && [ -x "$TH/zq/jqsh" ] \
+  && grep -q "sync: stable path resynced" "$TH/zq/hook.log" 2>/dev/null; then
+  ok "ensure-current: stale DEST fully resyncs and logs"
+else
+  bad "ensure-current: stale DEST fully resyncs and logs"
+fi
+rm -rf "$TH"
+
+TH=$(mktemp -d)
+rc=0
+ZAI_QUOTA_DIR="$TH/zq" bash scripts/ensure-current.sh >/dev/null 2>&1 || rc=1
+allok=1
+for f in quota-fetch.sh quota-hook.sh zai-statusline.sh sync.sh ensure-current.sh jqsh; do
+  [ -x "$TH/zq/$f" ] || allok=0
+done
+if [ "$rc" -eq 0 ] && [ "$allok" -eq 1 ]; then
+  ok "ensure-current: missing DEST installs all 6 files executable"
+else
+  bad "ensure-current: missing DEST installs all 6 files executable"
+fi
+rm -rf "$TH"
+
+TH=$(mktemp -d)
+: >"$TH/zq"   # DEST as a regular file: sync's mkdir -p fails for root and non-root alike
+rc=0
+ZAI_QUOTA_DIR="$TH/zq" bash scripts/ensure-current.sh >/dev/null 2>&1 || rc=1
+if [ "$rc" -eq 0 ]; then
+  ok "ensure-current: failed sync stays best-effort (exit 0)"
+else
+  bad "ensure-current: failed sync stays best-effort (exit 0)"
 fi
 rm -rf "$TH"
 
@@ -415,7 +476,8 @@ rm -rf "$TH"
 CHAIN='${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}'
 chainmiss=""
 for spec in "hooks/hooks.json 3" "commands/refresh.md 2" "scripts/zai-statusline.sh 1" \
-            "scripts/sync.sh 1" "scripts/quota-fetch.sh 1" "scripts/quota-hook.sh 1"; do
+            "scripts/sync.sh 1" "scripts/ensure-current.sh 1" \
+            "scripts/quota-fetch.sh 1" "scripts/quota-hook.sh 1"; do
   f=${spec% *}; want=${spec#* }
   [ "$(grep -cF -- "$CHAIN" "$f")" = "$want" ] || chainmiss="$chainmiss $f"
 done
@@ -809,6 +871,20 @@ if grep -q '${CLAUDE_PLUGIN_ROOT}/scripts' hooks/hooks.json \
   ok "hooks.json: sync entry blocks, session fetch is async, stable-path contract"
 else
   bad "hooks.json: sync entry blocks, session fetch is async, stable-path contract"
+fi
+
+# ensure-current chains before quota hook on prompt submit / turn end — and via
+# ";" not "&&": ensure-current runs from the ephemeral plugin root (it may be
+# garbage-collected after a second update), the quota hook after it must run
+# unconditionally
+# the next greps look for literal ${...} strings:
+# shellcheck disable=SC2016
+if [ "$(grep -cF 'ensure-current.sh' hooks/hooks.json)" = "2" ] \
+   && grep -qF '\"${CLAUDE_PLUGIN_ROOT}/scripts/ensure-current.sh\" ; \"${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota-hook.sh\" pre' hooks/hooks.json \
+   && grep -qF '\"${CLAUDE_PLUGIN_ROOT}/scripts/ensure-current.sh\" ; \"${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota-hook.sh\" post' hooks/hooks.json; then
+  ok "hooks.json: ensure-current chains before quota hook on prompt/stop"
+else
+  bad "hooks.json: ensure-current chains before quota hook on prompt/stop"
 fi
 
 printf '\n%d passed, %d failed, %d skipped\n' "$pass" "$fail" "$skip"

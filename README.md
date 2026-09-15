@@ -42,7 +42,9 @@ blocking script sync, and the first quota fetch fires in the background (step 3)
 stalled network can never hold Claude Code hostage. A PID-symlink lock plus an
 event-aware dedup window (8 s, tunable) collapse duplicate hook firings and parallel
 sessions; the fetch itself is a single plain GET to Z.AI's plan-usage endpoint — one
-call per prompt/turn cycle, nothing in between. The same hooks also stamp a
+call per prompt/turn cycle, nothing in between. The same hooks also carry a
+millisecond-scale parity check (`ensure-current.sh`) that re-syncs the stable path when
+a plugin update landed mid-session. They also stamp a
 per-session turn flag (`.turn-<session_id>`) that the statusline reads to make the dot
 breathe during a live turn — a file stamp, never an API call.
 
@@ -131,11 +133,14 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
    sit there until your first prompt.
 
 3. Restart Claude Code. On session start the plugin syncs its scripts to the stable path
-   `~/.claude/zaiquota/` (so plugin updates propagate automatically) and fires the first
-   quota fetch in the background — startup never waits on the network. The first render
-   can land before that fetch returns: with `refreshInterval: 1` from step 2 the line
-   repaints within a second or two, and if the fetch never lands the statusline nudges
-   its own throttled retry (see [Troubleshooting](#troubleshooting)).
+   `~/.claude/zaiquota/` and fires the first quota fetch in the background — startup never
+   waits on the network. Plugin **updates** propagate on their own: on every prompt submit
+   and turn end a parity check re-syncs the stable path if the installed plugin's scripts
+   have moved ahead of it, so after `/plugin update` (and `/reload-plugins` in the current
+   session) the very next prompt brings the copy current — no restart, no manual sync. The
+   first render can land before the startup fetch returns: with `refreshInterval: 1` from
+   step 2 the line repaints within a second or two, and if the fetch never lands the
+   statusline nudges its own throttled retry (see [Troubleshooting](#troubleshooting)).
 
 ### macOS Terminal
 
@@ -252,9 +257,10 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 
 | File | Role |
 |---|---|
-| `hooks/hooks.json` | Plugin hook registration (fast start-time sync, background first fetch, event-driven refresh) |
+| `hooks/hooks.json` | Plugin hook registration (fast start-time sync, mid-session update re-sync, background first fetch, event-driven refresh) |
 | `commands/refresh.md` | `/zai-quota-statusline:refresh` — force one fetch from the CLI |
 | `scripts/sync.sh` | Session-start installer: atomically syncs the scripts into the stable path |
+| `scripts/ensure-current.sh` | Parity check on prompt submit / turn end: re-syncs the stable path when a plugin update landed mid-session (report-only on orphan files, never deletes) |
 | `scripts/quota-fetch.sh` | Single GET to the Z.AI usage endpoint, response-shape validation, atomic cache write |
 | `scripts/quota-hook.sh` | Hook wrapper: async-safe, PID-symlink lock, event-aware dedup, log + rotation |
 | `scripts/zai-statusline.sh` | Statusline renderer: model chip, 5h/7d bars, context-left, cost, self-healing nudges |
