@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.20 — 2026-09-16
+The breath settles on two tones: the hueless dim gray (`38;5;240`) and the tier
+color — gray, mid, mid, gray, two seconds each. The bright ladder step from the
+earlier ramps is gone entirely; the pulse now reads as the dot dimming to its
+"off" end and coming back, nothing more.
+
 ## 0.1.19 — 2026-09-16
 The busy dot's breath is a three-step walk again: a hueless dim gray (`38;5;240`,
 the dot reading as switched off), then the tier color, then one ladder step up —

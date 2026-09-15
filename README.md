@@ -20,9 +20,8 @@ dashboard.
 > channel *up* until it renders brighter than the orange tier, visually inverting
 > severity. Colors already on the cube are identity-mapped by such quantizers, so the
 > status line looks the same everywhere: the tier colors `38;5;65/173/131`, and the
-> busy dot breathing across a dim gray (`38;5;240`) into two same-hue tones per tier
-> (`65→108`, `137→173`, `95→131`) — explicit `38;5;N` codes rather than SGR faint,
-> another attribute render paths drop.
+> busy dot breathing between a dim gray (`38;5;240`) and the tier color — explicit
+> `38;5;N` codes rather than SGR faint, another attribute render paths drop.
 
 ```
 ● GLM-5.3-Flash | 5h ━━━━━━──── 60% 2h 14m · 7d ━━━━━━━─── 77% 4d 3h · context left 38% · $5.10
@@ -124,8 +123,8 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
 
    `refreshInterval` (seconds) re-runs the statusline command on a steady beat — this is
    the documented Claude Code setting for periodic statusline updates, minimum 1 s. It is
-   what lets the dot breathe (while a turn is live it walks a three-step ramp — a dim
-   gray, the tier color, one tone up, back — one step per second at this render
+   what lets the dot breathe (while a turn is live it steps between a dim gray and the
+   tier color — two seconds each — one step per second at this render
    floor) and what repaints the line when the startup cache lands a moment after the
    first render (see step 3). Quota **fetching** stays event-driven — the timer only
    re-renders the line from the cache, it never calls the API. Without it the line only
