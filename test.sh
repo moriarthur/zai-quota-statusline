@@ -461,18 +461,30 @@ else
 fi
 rm -f "$FIX4"
 
-# ---- statusline: credit-only plans read quota, not 5h ----
-# the CREDIT_LIMIT fallback kept hard-coded 5h/7d labels; a lite plan has no
-# token windows, so it renders one bar labeled quota and no weekly segment
+# ---- statusline: credit-only plans render bare reset-sorted bars ----
+# since 2026-09-15 Z.AI ships the plan windows as CREDIT_LIMIT (the old
+# TOKENS_LIMIT data), and the credit number/unit fields do not map to window
+# durations — so both bars render bare, reset-sorted, with no invented labels
 FIX5=$(mktemp)
 jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"CREDIT_LIMIT",percentage:37,nextResetTime:(($ts+7200)*1000)}]}}' > "$FIX5"
 out=$(printf '%s' "$IN" | env ZAI_QUOTA_DIR="$TDIR" ZAI_SB_CACHE="$FIX5" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
-if [[ "$out" == *'quota'* && "$out" == *'37%'* ]] && [[ "$out" != *'5h'* ]] && [[ "$out" != *'7d'* ]]; then
-  ok "statusline: credit-only plan is one quota bar (no 5h/7d labels)"
+if [[ "$out" == *'37%'* ]] && [[ "$out" != *'5h'* ]] && [[ "$out" != *'7d'* ]] && [[ "$out" != *'quota'* ]]; then
+  ok "statusline: credit-only plan is a bare bar (no invented labels)"
 else
-  bad "statusline: credit-only plan is one quota bar (no 5h/7d labels)"
+  bad "statusline: credit-only plan is a bare bar (no invented labels)"
 fi
 rm -f "$FIX5"
+FIX6=$(mktemp)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[
+     {type:"CREDIT_LIMIT",number:5,unit:3,percentage:35,nextResetTime:(($ts+4800)*1000)},
+     {type:"CREDIT_LIMIT",number:1,unit:6,percentage:10,nextResetTime:(($ts+525600)*1000)}]}}' > "$FIX6"
+out=$(printf '%s' "$IN" | env ZAI_QUOTA_DIR="$TDIR" ZAI_SB_CACHE="$FIX6" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
+if [[ "$out" == *'35%'*'10%'* ]] && [[ "$out" != *'5h'* ]] && [[ "$out" != *'7d'* ]] && [[ "$out" != *'quota'* ]]; then
+  ok "statusline: live Z.AI credit payload renders both windows bare, reset-sorted"
+else
+  bad "statusline: live Z.AI credit payload renders both windows bare, reset-sorted"
+fi
+rm -f "$FIX6"
 rm -rf "$TDIR"
 
 # ---- statusline: a passed reset time nudges one throttled refresh ----

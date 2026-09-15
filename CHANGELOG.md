@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.15 — 2026-09-15
+Same-day follow-up, and the documented risk arrived on schedule: Z.AI
+flipped the plan windows in the usage payload from `TOKENS_LIMIT` to
+`CREDIT_LIMIT` (observed 2026-09-15). 0.1.14's credit fallback then
+rendered a single bar labeled `quota` and hid the weekly window entirely.
+The credit payload's `number`/`unit` fields do not map to window durations
+(unit 3 with a reset one hour away), so no labels are invented anymore:
+both windows render as bare reset-sorted bars — bar, percentage, time to
+reset — which is exactly the data the API still guarantees.
+
 ## 0.1.14 — 2026-09-15
 Startup race, both ends. The session-start fetch usually wins, but Claude Code
 can draw the first statusline a moment before the cache lands — and without

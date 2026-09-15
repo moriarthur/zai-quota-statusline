@@ -225,13 +225,25 @@ bar() { # pct [fg] -> thin line: heavy fill (colored) + light track (dim)
 # ---- quota segments ----
 q=''
 if [ "$h5r" -gt 0 ]; then
-  l1='5h'
-  [ "$src" = "c" ] && l1='quota'   # credit fallback: these are not 5-hour token windows
-  q=$(printf '%s %s \033[%sm%s%%\033[39m %s%s ' \
-    "$l1" "$(bar "$h5p")" "$(col "$h5p")" "$h5p" "$c_dim" "$(remain "$h5r")")
-  if [ "$wr" -gt 0 ] && [ "$src" != "c" ]; then   # a second credit window has no weekly meaning
-    q+=$(printf '%s·%s 7d %s \033[%sm%s%%\033[39m %s%s ' \
-      "$c_dim" "$c_r" "$(bar "$wp")" "$(col "$wp")" "$wp" "$c_dim" "$(remain "$wr")")
+  if [ "$src" = "c" ]; then
+    # Z.AI renamed the plan windows to CREDIT_LIMIT (observed 2026-09-15):
+    # the same percentage/nextResetTime data, but no verifiable window names —
+    # the credit `number`/`unit` fields do not map to durations (unit 3 with a
+    # reset 1 h away). Render both bars bare, reset-sorted; the times label
+    # themselves.
+    q=$(printf '%s \033[%sm%s%%\033[39m %s%s ' \
+      "$(bar "$h5p")" "$(col "$h5p")" "$h5p" "$c_dim" "$(remain "$h5r")")
+    if [ "$wr" -gt 0 ]; then
+      q+=$(printf '%s·%s %s \033[%sm%s%%\033[39m %s%s ' \
+        "$c_dim" "$c_r" "$(bar "$wp")" "$(col "$wp")" "$wp" "$c_dim" "$(remain "$wr")")
+    fi
+  else
+    q=$(printf '5h %s \033[%sm%s%%\033[39m %s%s ' \
+      "$(bar "$h5p")" "$(col "$h5p")" "$h5p" "$c_dim" "$(remain "$h5r")")
+    if [ "$wr" -gt 0 ]; then
+      q+=$(printf '%s·%s 7d %s \033[%sm%s%%\033[39m %s%s ' \
+        "$c_dim" "$c_r" "$(bar "$wp")" "$(col "$wp")" "$wp" "$c_dim" "$(remain "$wr")")
+    fi
   fi
   if [ "$SHOW_AGE" = 1 ] && [ "$fetched" -gt 0 ]; then
     q+=$(printf '%s- %sm%s ' "$c_dim" "$(( (now - fetched) / 60 ))" "$c_r")
