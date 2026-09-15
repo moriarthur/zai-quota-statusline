@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
 # Custom Claude Code statusline — single line:
 #
-#   <pill: dot + model> | 5h <bar> 9% 2h 39m · 7d <bar> 77% 1d 4h · context left 85% · $5.14
+#   ● model | 5h <bar> 9% 2h 39m · 7d <bar> 77% 1d 4h · context left 85% · $5.14
 #
-# Model chip uses Nerd Font rounded caps U+E0B6/U+E0B4; ZAI_SB_PLAIN=1 and macOS
-# (whose terminals render those caps as replacement glyphs) get a plain
-# "● model" chip instead. Bars are thin lines: heavy U+2501 fill (colored)
-# + light U+2500 track (dim).
+# Chip: plain "● model" on every platform — no Nerd Font caps, nothing that
+# depends on terminal fonts in CLI/IDE terminals, tmux or SSH. Bars are thin
+# lines: heavy U+2501 fill (colored) + light U+2500 track (dim).
 # Data: model / context / cost from the statusline stdin JSON; quotas from
 # quota.cache (kept fresh by the UserPromptSubmit/Stop/SessionStart hooks).
-# Rollback: point statusLine.command back to ~/.claude/statusline-compose.sh.
 set -o pipefail
+umask 077   # hysteresis state, stamps and the opt-in debug log stay user-private
 
 IN=$(cat)
 DIR="${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}"
 CACHE="${ZAI_SB_CACHE:-$DIR/quota.cache}"
 SEGMENTS=${ZAI_SB_SEGMENTS:-10}
 SHOW_AGE=${ZAI_SB_AGE:-0}
-PLAIN=${ZAI_SB_PLAIN:-0}   # 1 = render without Nerd Font pill caps
-MACOS=0
-[ "$(uname -s 2>/dev/null)" = Darwin ] && MACOS=1
 
 # jq is the only non-system dependency; macOS ships without it, so fall back to
 # the bundled jqsh (a jq-subset interpreter run by python3) when it is absent.
@@ -27,7 +23,7 @@ command -v jq >/dev/null 2>&1 || \
   jq() { python3 "$(dirname "${BASH_SOURCE[0]}")/jqsh" "$@"; }
 
 c_dim=$'\033[90m'; c_r=$'\033[0m'
-# Palette: xterm-256 cube colors ONLY (65/173/131), never free-form truecolor.
+# Palette: xterm-256 cube colors ONLY, never free-form truecolor.
 # Some TUI statusline render paths quantize any truecolor to the 6x6x6 cube
 # (each channel -> round(c/51) of {0,95,135,175,215,255}), which rounded the
 # dark red's green channel UP (77 -> 135) and turned it into a brighter orange
@@ -36,7 +32,6 @@ c_dim=$'\033[90m'; c_r=$'\033[0m'
 C_GREEN='38;5;65'     # (95,135,95)  sage
 C_ORANGE='38;5;173'   # (215,135,95) amber
 C_RED='38;5;131'      # (175,95,95)  brick-rose
-PL=$''; PR=$''         # pill caps (model chip)
 DOT=$'●'                       # status dot in the chip, colored by usage degree
 HEAVY=$'━'; LIGHT=$'─'    # bar: heavy fill / light track
 
@@ -48,6 +43,18 @@ col() { # usage pct -> fg SGR params: <50 green / <80 orange / >=80 red (Claude 
 
 num() { # sanitize anything numeric-ish into a plain non-negative integer
   case "${1:-}" in ''|*[!0-9]*) printf 0 ;; *) printf '%s' "$1" ;; esac
+}
+
+# Breath ramp: three on-cube luma steps of the tier's own hue (dim, mid, bright)
+# for the busy-dot breath. Explicit 38;5;N codes rather than SGR 2 — faint is
+# exactly the attribute some render paths drop, and on-cube codes pass the
+# quantizing backends noted above through unchanged.
+ramp() { # $1=tier SGR params -> R_D R_M R_B
+  case "$1" in
+    "$C_GREEN")  R_D=65;  R_M=108; R_B=151 ;;
+    "$C_ORANGE") R_D=137; R_M=173; R_B=216 ;;
+    *)           R_D=95;  R_M=131; R_B=174 ;;
+  esac
 }
 
 # ---- model (exact name as configured/launched) ----
@@ -71,8 +78,8 @@ case "$model" in
   *[Ss]onnet*) model=$(tier_model ANTHROPIC_DEFAULT_SONNET_MODEL "$model") ;;
   *[Hh]aiku*)  model=$(tier_model ANTHROPIC_DEFAULT_HAIKU_MODEL "$model") ;;
 esac
-model=${model:-Claude}   # jq failed on empty/malformed stdin — keep the pill labeled
-# sanitize LAST: both display_name and the tier_model mapping feed the pill.
+model=${model:-Claude}   # jq failed on empty/malformed stdin — keep the chip labeled
+# sanitize LAST: both display_name and the tier_model mapping feed the chip.
 # Explicit case pairs, not the GNU sed `I` flag — BSD sed (macOS) rejects it,
 # and a failing sed here would blank the whole model pipeline.
 model=$(printf '%s' "$model" \
@@ -83,12 +90,14 @@ model=$(printf '%s' "$model" \
 # ---- quotas ----
 h5p=0 h5r=0 wp=0 wr=0 fetched=0
 if [ -f "$CACHE" ]; then
-  IFS=$'\t' read -r h5p h5r wp wr fetched < <(
+  IFS=$'\t' read -r h5p h5r wp wr fetched src < <(
     # Labels assume the standard plan: two TOKENS_LIMIT windows of 5 hours and
     # 7 days. Near the weekly reset, reset-time order would swap the labels —
     # so when both windows carry distinct `number` fields (5 and 7) we label
     # by number; otherwise (e.g. CREDIT_LIMIT on lite plans) reset-time order
-    # is the best available signal.
+    # is the best available signal. Field 6 carries the source ("w"=token
+    # windows, "c"=credit fallback) — credit windows render as one "quota"
+    # bar, they are not 5-hour/weekly windows.
     jq -r '(.data.limits // []) as $l
       | ([$l[] | select(.type == "TOKENS_LIMIT")] | sort_by(.nextResetTime)) as $tok
       | (if ($tok | length) > 0 then $tok
@@ -104,43 +113,86 @@ if [ -f "$CACHE" ]; then
           ((($o[0].nextResetTime // 0) / 1000) | floor),
           (($o[1].percentage // 0) | floor),
           ((($o[1].nextResetTime // 0) / 1000) | floor),
-          (.fetched_at // 0) ]
+          (.fetched_at // 0),
+          (if ($tok | length) > 0 then "w" else "c" end) ]
       | @tsv' "$CACHE" 2>/dev/null
   )
   h5p=${h5p:-0}; h5r=${h5r:-0}; wp=${wp:-0}; wr=${wr:-0}; fetched=${fetched:-0}
   h5p=$(num "$h5p"); h5r=$(num "$h5r"); wp=$(num "$wp"); wr=$(num "$wr"); fetched=$(num "$fetched")
+  case "$src" in c) ;; *) src=w ;; esac   # anything odd reads as token windows
 fi
 
 now=$(date +%s)
 
-# ---- rollover nudge ----
-# The hooks refresh on prompts and turn ends only, so a 5h/7d reset that passes
-# between turns would freeze the bars on the old window ("99% ... 0m") until the
-# next prompt. While a cached reset time is in the past, spawn one
-# quota-fetch --force per ZAI_ROLL_MIN seconds (default 60; the stamp is written
-# first, so a re-render every second cannot pile up spawns). The fresh cache
-# carries the new windows and the nudge switches itself off.
+# ---- background nudges ----
+# One shared escape hatch for "the cache is wrong or absent and no hook is coming
+# to fix it": spawn one quota-fetch --force in the background, stamped next to the
+# cache (stamp written first, so a re-render every second cannot pile up spawns) —
+# one attempt per ZAI_ROLL_MIN seconds (default 60). The spawn routes through the
+# hook wrapper (quota-hook.sh session), so the fetch inherits the wrapper's fetch
+# lock, event dedup and hook.log visibility — a cold-start race between the async
+# session hook and the first render resolves to exactly one fetch.
+nudge() {
+  local rmin last stamp lock holder
+  rmin=$(num "${ZAI_ROLL_MIN:-60}")
+  [ "$rmin" -lt 1 ] && rmin=60
+  stamp="$(dirname "$CACHE")/.rollrefresh"
+  # Atomic claim (same PID-symlink idiom as the fetch lock): two parallel
+  # renders — two Claude windows on one project — must not both pass the stamp
+  # check and double-spawn the background fetch.
+  lock="$stamp.lock"
+  if [ -L "$lock" ]; then
+    holder=$(readlink "$lock" 2>/dev/null)
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      return 0                            # a sibling render holds the claim
+    fi
+  fi
+  rm -rf "$lock"
+  ln -s "$$" "$lock" 2>/dev/null || return 0
+  # Defer to an in-flight hook fetch — it writes the cache itself, so a cold
+  # start fires one fetch instead of two. Retrying is free: the stamp is not
+  # written here, so a later render may nudge again if the hook fetch died.
+  if [ -L "$DIR/.fetch.lock" ]; then
+    holder=$(readlink "$DIR/.fetch.lock" 2>/dev/null)
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      rm -rf "$lock"
+      return 0
+    fi
+  fi
+  last=$(num "$(head -1 "$stamp" 2>/dev/null)")
+  if [ $(( now - last )) -ge "$rmin" ]; then
+    printf '%s\n' "$now" >"$stamp" 2>/dev/null || true
+    # through the hook wrapper, not quota-fetch directly — lock + dedup make the
+    # cold-start race with the async session hook resolve to one fetch; stdin
+    # closed so the hook never inherits this render's JSON
+    ( "$(dirname "${BASH_SOURCE[0]}")/quota-hook.sh" session </dev/null >/dev/null 2>&1 & )
+  fi
+  rm -rf "$lock"   # release even when throttled — the claim guards the spawn only
+}
+
+# Rollover: the hooks refresh on prompts and turn ends only, so a 5h/7d reset
+# that passes between turns would freeze the bars on the old window
+# ("99% ... 0m") until the next prompt. A cached reset time in the past nudges;
+# the fresh cache carries the new windows and the nudge switches itself off.
 roll=0
 [ "$h5r" -gt 0 ] && [ "$h5r" -le "$now" ] && roll=1
 [ "$wr" -gt 0 ] && [ "$wr" -le "$now" ] && roll=1
-if [ "$roll" = 1 ]; then
-  rmin=$(num "${ZAI_ROLL_MIN:-60}")
-  [ "$rmin" -lt 1 ] && rmin=60
-  last=$(num "$(head -1 "$(dirname "$CACHE")/.rollrefresh" 2>/dev/null)")
-  if [ $(( now - last )) -ge "$rmin" ]; then
-    printf '%s\n' "$now" >"$(dirname "$CACHE")/.rollrefresh" 2>/dev/null || true
-    ( "$(dirname "${BASH_SOURCE[0]}")/quota-fetch.sh" --force >/dev/null 2>&1 & )
-  fi
+[ "$roll" = 1 ] && nudge
+
+# Missing cache: "quota n/a" can also mean the session hook never ran (killed
+# hook, missed install...). Only a genuinely absent cache FILE nudges — a
+# present-but-unparsable one may be an empty or unsupported quota response and
+# must be left alone — and only with credentials on disk, so an unconfigured
+# install never spawns. Shares the rollover stamp; the two triggers are
+# mutually exclusive (rollover needs a parsed cache).
+if [ ! -f "$CACHE" ] && [ -f "$DIR/config.env" ]; then
+  nudge
 fi
 
-# ---- turn pulse ----
+# ---- turn flag ----
 # The hooks stamp .turn[-<session_id>] at prompt submit and clear it at turn
 # end, so "a turn is live" is knowable without a busy field in the stdin JSON
-# (there is none). While live, the chip's dot breathes at 2 Hz — toggling every
-# 500 ms, twice the polling floor the statusline host can drive
-# (statusLine.refreshInterval, min 1 s); event-driven re-renders add irregular
-# extra steps for free, and during a live turn those carry the faster phase.
-# No flag = idle: static dot, exactly as before.
+# (there is none). No flag = idle: static dot.
 busy=0
 sid=$(jq -r '.session_id // empty' <<<"$IN" 2>/dev/null)
 case "$sid" in ''|*[!A-Za-z0-9_-]*) sid='' ;; esac
@@ -173,9 +225,11 @@ bar() { # pct [fg] -> thin line: heavy fill (colored) + light track (dim)
 # ---- quota segments ----
 q=''
 if [ "$h5r" -gt 0 ]; then
-  q=$(printf '5h %s \033[%sm%s%%\033[39m %s%s ' \
-    "$(bar "$h5p")" "$(col "$h5p")" "$h5p" "$c_dim" "$(remain "$h5r")")
-  if [ "$wr" -gt 0 ]; then
+  l1='5h'
+  [ "$src" = "c" ] && l1='quota'   # credit fallback: these are not 5-hour token windows
+  q=$(printf '%s %s \033[%sm%s%%\033[39m %s%s ' \
+    "$l1" "$(bar "$h5p")" "$(col "$h5p")" "$h5p" "$c_dim" "$(remain "$h5r")")
+  if [ "$wr" -gt 0 ] && [ "$src" != "c" ]; then   # a second credit window has no weekly meaning
     q+=$(printf '%s·%s 7d %s \033[%sm%s%%\033[39m %s%s ' \
       "$c_dim" "$c_r" "$(bar "$wp")" "$(col "$wp")" "$wp" "$c_dim" "$(remain "$wr")")
   fi
@@ -187,41 +241,111 @@ else
 fi
 q=${q%' '}   # drop one trailing space so the `·` separator below isn't doubled
 
+# ---- context-left hysteresis ----
+# The statusline payload builder (VAt in the CC binary) lacks the zero-usage
+# guard its /context path has, so a transient zero-sum usage object — a streaming
+# message's placeholder — arrives as used_percentage:0 and the line flashes
+# "context left 100%" for a few 1 Hz frames until the real response usage lands.
+# Hold such jumps: a rise of >= ZAI_SB_CTX_JUMP points (default 10) displays only
+# after it repeats on 2 CONSECUTIVE identical frames; falls and smaller rises
+# show at once. State is per session in ".ctx[-<sid>]" (shown|candidate|count|ts),
+# left untouched by steady renders, stale after 300 s. A real compaction lands
+# ~2 s late — held briefly, never hidden.
+CTX_HOLD_PTS=${ZAI_SB_CTX_JUMP:-10}
+ctx_hyst() { # $1=raw ctxl -> prints the value to display
+  local st="$DIR/.ctx${sid:+-$sid}" V=$1 S='' C=0 N=0 T=0 prev show nS nC nN tmp
+  if [ -f "$st" ]; then
+    IFS='|' read -r S C N T _ <"$st" 2>/dev/null
+    S=$(num "$S"); C=$(num "$C"); N=$(num "$N"); T=$(num "$T")
+  fi
+  prev=$S
+  if [ -n "$S" ] && [ $(( now - T )) -le 300 ]; then
+    if [ "$V" -le "$S" ] || [ $(( V - S )) -lt "$CTX_HOLD_PTS" ]; then
+      show=$V; nS=$V; nC=0; nN=0              # fall or small rise: show at once
+    elif [ "$C" = "$V" ] && [ "$N" -ge 1 ]; then
+      nN=$(( N + 1 ))
+      if [ "$nN" -ge 2 ]; then show=$V; nS=$V; nC=0; nN=0   # confirmed twice
+      else show=$S; nS=$S; nC=$V; fi                        # held one more frame
+    else
+      show=$S; nS=$S; nC=$V; nN=1                            # new candidate: hold
+    fi
+  else
+    show=$V; nS=$V; nC=0; nN=0                               # no/stale state: raw
+  fi
+  if [ -z "$S" ] || [ "$nS|$nC|$nN" != "$S|$C|$N" ]; then
+    # process-unique temp + rename: a parallel render or the age sweep never
+    # sees a torn file — same atomic idiom as the cache write
+    tmp="$st.$$"
+    if printf '%s|%s|%s|%s\n' "$nS" "$nC" "$nN" "$now" >"$tmp" 2>/dev/null; then
+      mv -f "$tmp" "$st" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+    else
+      rm -f "$tmp" 2>/dev/null
+    fi
+  fi
+  # diagnostics (ZAI_SB_DEBUG=1): incidents only — a held jump or a displayed
+  # change, never steady renders. Totals from current_usage; rotated like hook.log.
+  if [ "$ZAI_SB_DEBUG" = 1 ] && { [ "$show" != "$V" ] || { [ -n "$prev" ] && [ "$show" != "$prev" ]; }; }; then
+    local lg="$DIR/statusline-debug.log" sz io
+    sz=$(num "$(wc -c <"$lg" 2>/dev/null)")
+    [ "$sz" -gt 262144 ] && : >"$lg"
+    io=$(jq -r '[(.context_window.current_usage.input_tokens // 0) + (.context_window.current_usage.cache_read_input_tokens // 0) + (.context_window.current_usage.cache_creation_input_tokens // 0), (.context_window.current_usage.output_tokens // 0)] | @tsv' <<<"$IN" 2>/dev/null)
+    printf '%s|%s|used=%s|remaining=%s|shown=%s|held=%s|in=%s|out=%s\n' \
+      "$now" "${sid:-none}" "$(( 100 - V ))" "$V" "$show" \
+      "$([ "$show" != "$V" ] && printf 1 || printf 0)" \
+      "${io%%$'\t'*}" "${io##*$'\t'}" >>"$lg" 2>/dev/null || true
+  fi
+  printf '%s\n' "$show"
+}
+
 # ---- right-side facts: context usage + session cost ----
+# used and remaining are one computation in CC (remaining = 100 - used, clamped
+# to 0..100), so used_percentage alone is the source.
 extra=''
 ctxp=$(jq -r '.context_window.used_percentage // empty' <<<"$IN" 2>/dev/null)
 if [ -n "$ctxp" ]; then
   ctxp=${ctxp%.*}   # floor if float
   ctxp=$(num "$ctxp")
-  ctxl=$(jq -r '.context_window.remaining_percentage // empty' <<<"$IN" 2>/dev/null)
-  if [ -n "$ctxl" ]; then ctxl=${ctxl%.*}; else ctxl=$(( 100 - ctxp )); fi
-  ctxl=$(num "$ctxl")
-  ctxc=$(col "$ctxp")   # color still tracks usage; the number is what's left
+  [ "$ctxp" -gt 100 ] && ctxp=100
+  ctxl=$(ctx_hyst "$(( 100 - ctxp ))")
+  ctxc=$(col "$(( 100 - ctxl ))")   # color tracks the DISPLAYED usage, not raw
   extra+=$(printf '%scontext left \033[%sm%s%%\033[39m' "$c_dim" "$ctxc" "$ctxl")
 fi
+# total_cost_usd is Claude Code's own list-price estimate for the session (reset
+# by /clear) — not the Z.AI invoice. A value that is not a number, or a negative
+# one (no such estimate exists), hides the segment instead of posing as $0.00.
+# printf (strtod) is the parser: it accepts scientific notation, and only a
+# non-number fails — its exit code separates "abc" from "1e-05". LC_NUMERIC=C:
+# %f is locale-aware, and a ru-RU terminal would otherwise render "5,10".
 cost=$(jq -r '.cost.total_cost_usd // empty' <<<"$IN" 2>/dev/null)
 if [ -n "$cost" ]; then
-  [[ "$cost" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || cost=0   # a real decimal, or nothing
+  case "$cost" in -*) cost='' ;; esac   # a negative estimate is not a real value
+fi
+if [ -n "$cost" ]; then
+  cost=$(LC_NUMERIC=C printf '%.2f' "$cost" 2>/dev/null) || cost=''
+fi
+if [ -n "$cost" ]; then
   [ -n "$extra" ] && extra+=" ${c_dim}·${c_r} "   # same dim separator style as the quota segments
-  extra+=$(printf '%s$%.2f%s' "$c_dim" "$cost" "$c_r")
+  extra+=$(printf '%s$%s%s' "$c_dim" "$cost" "$c_r")
 fi
 
-# ---- model chip ----
+# ---- turn breath + model chip ----
+# While a turn is live the dot breathes through the tier's three on-cube luma
+# steps — dim, mid, bright, mid — one step per second, a calm 4 s cycle at the
+# host's render floor (statusLine.refreshInterval, min 1 s); faster event-driven
+# re-renders within the same second land on the same step. The chip is plain
+# everywhere: "● model", the dot carrying the color.
 glc=$(col "$h5p")
 if [ "$busy" = 1 ]; then
-  tick=${ZAI_SB_TEST_TICK:-}   # test seam: freeze the clock for a deterministic frame
-  [ -n "$tick" ] || tick=$(( now * 1000 ))
-  [ $(( (tick / 500) % 2 )) -eq 0 ] && glc="2;$glc"   # breath-in: SGR-dim the dot
+  tick=${ZAI_SB_TEST_TICK:-$now}   # test seam: freeze the clock (whole seconds)
+  ramp "$glc"
+  case $(( tick % 4 )) in
+    0) glc="38;5;$R_D" ;;
+    1) glc="38;5;$R_M" ;;
+    2) glc="38;5;$R_B" ;;
+    *) glc="38;5;$R_M" ;;
+  esac
 fi
-if [ "$MACOS" = 1 ] || [ "$PLAIN" = 1 ]; then
-  # No Nerd Font pill caps: ZAI_SB_PLAIN=1 opts out explicitly, and macOS
-  # terminals render the caps as replacement glyphs — Darwin gets the same
-  # plain "● model" chip, dot color and breath included.
-  chip=$(printf '\033[%sm%s\033[0m %s' "$glc" "$DOT" "$model")
-else
-  chip=$(printf '\033[38;5;236m%s\033[0m\033[48;5;236m \033[%sm%s\033[0;48;5;236;38;5;252m %s \033[0m\033[38;5;236m%s\033[0m' \
-    "$PL" "$glc" "$DOT" "$model" "$PR")
-fi
+chip=$(printf '\033[%sm%s\033[0m %s' "$glc" "$DOT" "$model")
 
 # ---- assemble ----
 line="$chip ${c_dim}|${c_r} $q"

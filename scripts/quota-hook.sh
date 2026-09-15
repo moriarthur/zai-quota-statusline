@@ -5,10 +5,12 @@
 #   quota-hook.sh post     <- Stop            (turn finished)
 #   quota-hook.sh session  <- SessionStart    (startup/resume/clear)
 #
-# Registered in ~/.claude/settings.json with "async": true, so Claude Code runs
-# it in the background and it never blocks prompt processing. A PID-symlink
-# lock (atomic claim + publication in one syscall) guarantees at most one
-# fetch at a time across ALL sessions, on every platform.
+# Registered by the plugin's hooks.json (or ~/.claude/settings.json on a manual
+# install): UserPromptSubmit and Stop run async so prompt processing never
+# blocks, and SessionStart fires the first fetch in the background so startup
+# never waits on the network. A PID-symlink lock (atomic claim + publication
+# in one syscall) guarantees at most one fetch at a time across ALL sessions,
+# on every platform.
 #
 # Event-aware dedup window (ZAI_HOOK_DEDUP_SEC, default 8s):
 #   - pre/session skip if ANY fetch happened within the window (a just-finished
@@ -53,7 +55,14 @@ TURN="$DIR/.turn${sid:+-$sid}"
 case "$EV" in
   pre)     printf '%s\n' "$now" >"$TURN" ;;
   post)    rm -f "$TURN" ;;          # own session only — a parallel one may still be busy
-  session) rm -f "$DIR"/.turn* ;;    # fresh start sweeps stale flags from crashed turns
+  session)                          # fresh start garbage-collects DEAD sessions' state:
+    for f in "$DIR"/.turn* "$DIR"/.ctx*; do   # live parallel sessions must survive
+      [ -f "$f" ] || continue
+      IFS='|' read -r t1 _c _n t4 _r <"$f" 2>/dev/null
+      case "$t4" in '') ts=$t1 ;; *) ts=$t4 ;; esac   # .turn: epoch | .ctx: ts is field 4
+      case "$ts" in ''|*[!0-9]*) ts=0 ;; esac         # malformed garbage sweeps itself
+      [ "$(( now - ts ))" -gt 86400 ] && rm -f "$f"   # readers ignore older anyway
+    done ;;
 esac
 
 # Cross-session single-fetch guarantee. The lock is a FIXED-NAME symlink

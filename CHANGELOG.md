@@ -1,5 +1,99 @@
 # Changelog
 
+## 0.1.14 — 2026-09-15
+Startup race, both ends. The session-start fetch usually wins, but Claude Code
+can draw the first statusline a moment before the cache lands — and without
+`statusLine.refreshInterval` that first `quota n/a` then sat on screen until
+the first conversation event (observed on macOS: the hook log showed
+`session: force fetch` → `quota cache updated` while the line still read
+n/a). The README now presents `refreshInterval: 1` as the required piece (it
+is the documented mechanism for periodic statusline re-runs, minimum 1 s),
+corrects the install step that promised the fetch always beats the first
+render, and gains a Troubleshooting section for "n/a after launch".
+
+The statusline also gained a second, stricter self-heal: when the cache FILE
+is absent while `config.env` exists — a session hook that never ran or was
+killed — the next render nudges one background `quota-fetch --force`, sharing
+the rollover nudge's stamp and `ZAI_ROLL_MIN` throttle. A present-but-
+unparsable cache (empty or unsupported quota response) never nudges, and
+neither does an install without `config.env`.
+
+The chip sheds its Nerd Font pill caps everywhere. Rounded caps were the one
+glyph-dependent element left — they render as replacement glyphs wherever the
+font is missing (macOS was already auto-switched, but IDE terminals, SSH boxes
+and fresh Linux installs were a coin toss). The chip is now the plain
+`● model` on every platform, CLI and IDE alike; `ZAI_SB_PLAIN` and the Darwin
+detection that picked the chip form are gone with it.
+
+The busy dot's breath is rebuilt. The old "2 Hz" SGR-2 toggle never actually
+toggled — the render clock has whole-second resolution, so `(tick / 500) % 2`
+was always 0 and busy dots sat statically faint — and SGR faint is exactly
+the attribute some render paths drop. The dot now breathes through three
+same-hue on-cube luma steps per usage tier (green 65/108/151, amber
+137/173/216, red 95/131/174) — dim, mid, bright, mid, one step per second: a
+calm 4-second cycle at the statusline host's 1 Hz render floor. Idle stays
+static; `ZAI_SB_TEST_TICK` now freezes the clock in whole seconds.
+
+The context-left number stopped flashing 100%. Claude Code's statusline
+payload computes remaining = 100 − used in one expression, but its builder
+has no zero-usage guard (the /context path does): a transient placeholder
+usage once arrived as used_percentage: 0 and flashed "context left 100%"
+across a few renders — observed live as 89 → 100 → 88. The statusline now
+reads only used_percentage (one source is enough when the pair is computed
+together) and holds a rise of ≥ `ZAI_SB_CTX_JUMP` points (default 10) until
+it repeats on two consecutive identical frames — per-session state, stale
+after 300 s. Falls and smaller rises show immediately, the chip color
+follows the displayed value, and a real compaction lands about two seconds
+late instead of never. `ZAI_SB_DEBUG=1` (off by default) appends one line
+per incident — held jumps and displayed changes only, never steady renders —
+to a user-private `statusline-debug.log`, rotated like hook.log.
+
+The session cost got honest edges. `cost.total_cost_usd` is Claude Code's
+own list-price estimate for the session (reset by /clear), not the Z.AI
+invoice — the README now says so. A non-numeric or negative value hides the
+cost segment instead of posing as a believable $0.00, scientific notation
+parses properly (strtod via printf, exit code as the validator), and the
+render is locale-locked to C so a ru-RU terminal cannot turn $5.10 into
+"5,10". A genuinely tiny cost still renders as $0.00 — correct rounding,
+not a bug.
+
+Startup is network-proof. SessionStart used to run the first quota fetch
+synchronously: a stalled network could hold Claude Code's startup for up to
+the 20 s hook timeout. Startup now only runs the fast blocking script sync;
+the first fetch fires in the background, and the missing-cache self-heal
+plus `refreshInterval: 1` repaint the line when it lands. The self-heal
+defers to an in-flight hook fetch, so a cold start fires one fetch; if the
+hook process died after writing its dedup state but before fetching,
+`quota n/a` can persist for up to `ZAI_ROLL_MIN` seconds (a minute by
+default) while renders continue.
+
+Sessions stopped stepping on each other. The session-start state sweep
+deleted every `.turn*`/`.ctx*` file — including live parallel sessions'
+pulse flags and hysteresis state. It is now age-aware: files newer than
+24 h (the readers' own cap) survive; genuinely stale or malformed ones go.
+
+The statusline nudge (rollover + missing-cache) claims an atomic PID-symlink
+before spawning — the same idiom as the fetch lock — so two parallel renders
+(two Claude windows on one project) can no longer double-spawn the fetch,
+defers to an in-flight hook fetch, and routes its own spawn through the hook
+wrapper: lock, event dedup and hook.log visibility included. A cold-start
+race between the async session hook and the first render now resolves to
+exactly one fetch. Hysteresis state is written the same way the cache is:
+temp file + rename, so a parallel render or the sweep never reads a torn
+file. `ZAI_SB_CACHE` is documented as a read-path override — fetches always
+write the standard `<base>/quota.cache`.
+
+Credit-only plans read `quota`, not `5h`: the CREDIT_LIMIT fallback kept
+hard-coded 5h/7d labels, which are simply wrong for plans without token
+windows (a second credit window is hidden too — it has no weekly meaning).
+
+README wording caught up with the code: "no quota polling" (the optional 1 s
+timer re-renders from the cache and never fetches), "no Nerd Font
+prerequisite" (the ●/━/─ glyphs ship with stock terminal fonts), python3 on
+macOS described as CLT-or-brew rather than a guarantee, and the Z.AI quota
+endpoint documented as an internal Coding Plan API built from the base
+URL's origin only — a path in `ANTHROPIC_BASE_URL` is ignored for quota.
+
 ## 0.1.13 — 2026-09-15
 macOS round. The model chip's Nerd Font pill caps (U+E0B6/U+E0B4) render as
 replacement glyphs in macOS Terminal, so Darwin now draws the plain "● model"

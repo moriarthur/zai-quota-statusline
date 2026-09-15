@@ -1,13 +1,19 @@
 {
-  "description": "Event-driven Z.AI quota refresh: sync scripts to a stable path on session start, then refresh the quota cache on prompt submit and turn end.",
+  "description": "Event-driven Z.AI quota refresh: a fast blocking one-liner syncs the scripts to a stable path on session start, the first quota fetch fires in the background (startup never waits on the network), and prompt submit / turn end refresh the cache event-driven.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh\" && \"${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota-hook.sh\" session",
-            "timeout": 20
+            "timeout": 20,
+            "async": true
           }
         ]
       }

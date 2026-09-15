@@ -55,29 +55,41 @@ jq -n --argjson ts "$NOW" --argjson a 9 --argjson b 77 \
 # cannot see; shellcheck >=0.9 flags the definition as unreachable (0.8.0, our
 # pinned dev version, predates that check). Silence the false positive.
 # shellcheck disable=SC2317
-sb() { printf '%s' "$1" | env ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh; }
+# renders get an isolated ZAI_QUOTA_DIR: hysteresis state must never land in (or
+# read from) the dev machine's live ~/.claude/zaiquota
+TEST_SB_DIR=$(mktemp -d)
+sb() { printf '%s' "$1" | env ZAI_QUOTA_DIR="$TEST_SB_DIR" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh; }
 
 IN='{"model":{"display_name":"glm-5.3-flash[1m]"},"context_window":{"used_percentage":62},"cost":{"total_cost_usd":5.1}}'
 check "statusline: exact model (1M marker stripped)" "GLM-5.3-Flash" sb "$IN"
 check "statusline: context-left from used%"         "context left 38%" sb "$IN"
 check "statusline: session cost"                    "\$5.10"           sb "$IN"
+absent "statusline: non-numeric cost hides the segment" '$' \
+  env ZAI_QUOTA_DIR="$TEST_SB_DIR" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh \
+  <<< '{"model":{"display_name":"X"},"cost":{"total_cost_usd":"abc"}}'
+absent "statusline: negative cost hides the segment" '$' \
+  env ZAI_QUOTA_DIR="$TEST_SB_DIR" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh \
+  <<< '{"model":{"display_name":"X"},"cost":{"total_cost_usd":-1.2}}'
+check "statusline: scientific-notation cost renders" "\$0.00" \
+  env ZAI_QUOTA_DIR="$TEST_SB_DIR" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh \
+  <<< '{"model":{"display_name":"X"},"cost":{"total_cost_usd":1e-05}}'
 check "statusline: 5h/7d segments"                  "7d"               sb "$IN"
 check "statusline: tier resolved via env mapping"   "GLM-5.3-Flash"    env ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.3-flash ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< '{"model":{"display_name":"Sonnet 4.5"}}'
-check "statusline: empty stdin falls back"          "Claude"           env ZAI_SB_CACHE=/tmp/zai-ci-nope bash scripts/zai-statusline.sh </dev/null
-check "statusline: no cache is quiet"               "quota n/a"        env ZAI_SB_CACHE=/tmp/zai-ci-nope bash scripts/zai-statusline.sh </dev/null
-PILL_CAP=$(printf '\ue0b6')   # Nerd Font left pill cap (U+E0B6), ASCII escape so the glyph never travels through edits
-absent "statusline: plain mode has no pill caps"    "$PILL_CAP"        env ZAI_SB_PLAIN=1 ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
-UNAME_TH=$(mktemp -d)
-printf '#!/usr/bin/env bash\nprintf Darwin\n' > "$UNAME_TH/uname"
-chmod +x "$UNAME_TH/uname"
+# an isolated ZAI_QUOTA_DIR keeps the missing-cache self-heal out of these two:
+# with the dev machine's real config.env present, an absent cache would spawn a
+# live fetch from the suite
+EMPTY=$(mktemp -d)
+check "statusline: empty stdin falls back"          "Claude"           env ZAI_QUOTA_DIR="$EMPTY" ZAI_SB_CACHE=/tmp/zai-ci-nope bash scripts/zai-statusline.sh </dev/null
+check "statusline: no cache is quiet"               "quota n/a"        env ZAI_QUOTA_DIR="$EMPTY" ZAI_SB_CACHE=/tmp/zai-ci-nope bash scripts/zai-statusline.sh </dev/null
+rm -rf "$EMPTY"
+PILL_CAP=$(printf '\ue0b6')   # the retired Nerd Font pill cap (U+E0B6), ASCII escape so the glyph never travels through edits
+absent "statusline: chip is plain everywhere (no pill caps)" "$PILL_CAP" \
+  env ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
+absent "statusline: pill background SGR left with the pill" $'\033[48;5;236' \
+  env ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
 MAC_DOT=$(printf '\u25cf')
-absent "statusline: macOS has no Nerd Font pill caps" "$PILL_CAP" \
-  env PATH="$UNAME_TH:$PATH" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
-check  "statusline: macOS keeps the plain status dot" "$MAC_DOT" \
-  env PATH="$UNAME_TH:$PATH" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
-check  "statusline: macOS keeps the model name" "GLM-5.3-Flash" \
-  env PATH="$UNAME_TH:$PATH" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
-rm -rf "$UNAME_TH"
+check  "statusline: plain status dot renders" "$MAC_DOT" \
+  env ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh <<< "$IN"
 
 # ---- jqsh: without jq on PATH the statusline must render identically ----
 # macOS has no jq; the bundled jqsh (python3) substitutes. Stripping jq from
@@ -87,8 +99,12 @@ if command -v python3 >/dev/null 2>&1; then
   for t in bash sh cat uname date sed tr cut head dirname python3 env mktemp chmod rm grep; do
     p=$(command -v "$t" 2>/dev/null) && ln -s "$p" "$NOPATH/$t"
   done
-  plain=$(printf '%s' "$IN" | env ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh)
-  shimmed=$(printf '%s' "$IN" | env PATH="$NOPATH" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh)
+  # remaining-time tokens ("3h 0m") are masked before comparing: the two renders
+  # can straddle a minute boundary, which changes the string but not the parser
+  plain=$(printf '%s' "$IN" | env ZAI_QUOTA_DIR="$TEST_SB_DIR" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh \
+    | sed -E 's/[0-9]+d [0-9]+h/T/g; s/[0-9]+h [0-9]+m/T/g; s/[0-9]+m/T/g')
+  shimmed=$(printf '%s' "$IN" | env PATH="$NOPATH" ZAI_QUOTA_DIR="$TEST_SB_DIR" ZAI_SB_CACHE="$FIX" bash scripts/zai-statusline.sh \
+    | sed -E 's/[0-9]+d [0-9]+h/T/g; s/[0-9]+h [0-9]+m/T/g; s/[0-9]+m/T/g')
   if [ -n "$plain" ] && [ "$plain" = "$shimmed" ]; then
     ok "statusline: jqsh fallback renders the identical line"
   else
@@ -98,6 +114,7 @@ if command -v python3 >/dev/null 2>&1; then
 else
   skipped "statusline: jqsh fallback (python3 missing)"
 fi
+rm -rf "$TEST_SB_DIR"
 
 # ---- jqsh: every filter the scripts use must produce jq-identical output ----
 if command -v jq >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
@@ -126,7 +143,8 @@ if command -v jq >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
           ((($o[0].nextResetTime // 0) / 1000) | floor),
           (($o[1].percentage // 0) | floor),
           ((($o[1].nextResetTime // 0) / 1000) | floor),
-          (.fetched_at // 0) ]
+          (.fetched_at // 0),
+          (if ($tok | length) > 0 then "w" else "c" end) ]
       | @tsv'
   cmpjq() { # name -- jq args...  (compare stdout and exit code: jq vs jqsh)
     local name=$1; shift
@@ -213,55 +231,169 @@ else
 fi
 rm -rf "$FIX5" "$FIX6"
 
-# ---- statusline: the dot breathes while a turn is live ----
-# The pulse is an SGR-2 dim on even half-second steps, so these checks read RAW output
-# (the suite's ANSI-stripper would erase the very thing under test).
+# ---- statusline: the dot breathes through on-cube luma steps while live ----
+# The breath is three same-hue 256-color codes per usage tier — dim, mid, bright,
+# mid — one step per second (the host render floor: refreshInterval min 1 s), no
+# SGR faint (an attribute render paths drop). Checks read RAW output (the suite's
+# ANSI-stripper would erase the very thing under test); 21% usage = green tier =
+# ramp 65 (idle/dim), 108 (mid), 151 (bright). ZAI_SB_TEST_TICK freezes the clock
+# in whole seconds.
 FIXD=$(mktemp -d)
 jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"TOKENS_LIMIT",percentage:21,nextResetTime:(($ts+3600)*1000)}]}}' > "$FIXD/quota.cache"
 printf '%s\n' "$NOW" > "$FIXD/.turn"
-dim=$'\033[2;38;5;'
-raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
-if [[ "$raw" == *"$dim"* ]]; then
-  ok "statusline: busy turn dims the dot on the breath-in tick"
+dim=$'\033[38;5;65m'; mid=$'\033[38;5;108m'; bright=$'\033[38;5;151m'; olddim=$'\033[2;38;5;'
+sb_tick() { printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK="$1" bash scripts/zai-statusline.sh; }
+raw=$(sb_tick 0)
+if [[ "$raw" == *"$dim"* && "$raw" != *"$mid"* && "$raw" != *"$bright"* ]]; then
+  ok "statusline: breath phase 0 is the base step (no SGR faint)"
 else
-  bad "statusline: busy turn dims the dot on the breath-in tick"
+  bad "statusline: breath phase 0 is the base step (no SGR faint)"
 fi
-raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2500 bash scripts/zai-statusline.sh)
-if [[ "$raw" != *"$dim"* ]]; then
-  ok "statusline: busy turn keeps the dot full on the breath-out tick"
+if [[ "$raw" != *"$olddim"* ]]; then
+  ok "statusline: breath never emits the old SGR-faint dim"
 else
-  bad "statusline: busy turn keeps the dot full on the breath-out tick"
+  bad "statusline: breath never emits the old SGR-faint dim"
 fi
-rm -f "$FIXD/.turn"   # idle case: the breath-in test above left its flag behind
-raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
-if [[ "$raw" != *"$dim"* ]]; then
+raw=$(sb_tick 1)
+if [[ "$raw" == *"$mid"* && "$raw" != *"$bright"* ]]; then
+  ok "statusline: breath phase 1 steps the dot up to mid"
+else
+  bad "statusline: breath phase 1 steps the dot up to mid"
+fi
+raw=$(sb_tick 2)
+if [[ "$raw" == *"$bright"* && "$raw" != *"$mid"* ]]; then
+  ok "statusline: breath phase 2 peaks the dot at bright"
+else
+  bad "statusline: breath phase 2 peaks the dot at bright"
+fi
+raw=$(sb_tick 3)
+if [[ "$raw" == *"$mid"* && "$raw" != *"$bright"* ]]; then
+  ok "statusline: breath phase 3 falls back to mid (4 s cycle)"
+else
+  bad "statusline: breath phase 3 falls back to mid (4 s cycle)"
+fi
+rm -f "$FIXD/.turn"   # idle case: the breath tests above left their flag behind
+raw=$(sb_tick 1)
+if [[ "$raw" != *"$mid"* && "$raw" != *"$bright"* ]]; then
   ok "statusline: idle dot is static (no turn flag)"
 else
   bad "statusline: idle dot is static (no turn flag)"
 fi
 printf '0\n' > "$FIXD/.turn"   # stamp older than the 24h sanity cap
-raw=$(printf '%s' "$IN" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
-if [[ "$raw" != *"$dim"* ]]; then
-  ok "statusline: stale turn flag does not pulse"
+raw=$(sb_tick 1)
+if [[ "$raw" != *"$mid"* && "$raw" != *"$bright"* ]]; then
+  ok "statusline: stale turn flag does not breathe"
 else
-  bad "statusline: stale turn flag does not pulse"
+  bad "statusline: stale turn flag does not breathe"
 fi
-# per-session flag: only the owning session pulses
+# per-session flag: only the owning session breathes
 IN_SID='{"model":{"display_name":"X"},"session_id":"sb-pulse-test"}'
 printf '%s\n' "$NOW" > "$FIXD/.turn-sb-pulse-test"
-raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
-if [[ "$raw" == *"$dim"* ]]; then
-  ok "statusline: session-scoped turn flag pulses its own session"
+raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=1 bash scripts/zai-statusline.sh)
+if [[ "$raw" == *"$mid"* ]]; then
+  ok "statusline: session-scoped turn flag breathes its own session"
 else
-  bad "statusline: session-scoped turn flag pulses its own session"
+  bad "statusline: session-scoped turn flag breathes its own session"
 fi
 rm -f "$FIXD/.turn-sb-pulse-test"
-raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=2000 bash scripts/zai-statusline.sh)
-if [[ "$raw" != *"$dim"* ]]; then
-  ok "statusline: another session's flag does not pulse this one"
+raw=$(printf '%s' "$IN_SID" | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$FIXD" ZAI_SB_TEST_TICK=1 bash scripts/zai-statusline.sh)
+if [[ "$raw" != *"$mid"* ]]; then
+  ok "statusline: another session's flag does not breathe this one"
 else
-  bad "statusline: another session's flag does not pulse this one"
+  bad "statusline: another session's flag does not breathe this one"
 fi
+
+# ---- statusline: context-left hysteresis over sequential frames ----
+# The CC statusline payload can carry a transient zero-sum usage object (used_
+# percentage:0 → "context left 100%"), so a rise of >=10 points displays only
+# after it repeats on two CONSECUTIVE identical frames; falls show at once.
+# Each scenario drives real sequential renders through one session's state file.
+HY=$(mktemp -d)
+hys_seq() { # $@ = used_percentage per frame -> printed "context left N%" per line
+  for u in "$@"; do
+    v=$(printf '{"model":{"display_name":"X"},"session_id":"sb-hyst","context_window":{"used_percentage":%s}}' "$u" \
+      | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$HY" ZAI_SB_TEST_TICK=7 ZAI_SB_DEBUG="${ZAI_SB_DEBUG:-0}" \
+        bash scripts/zai-statusline.sh 2>&1 \
+      | strip_ansi | sed -E 's/.*context left ([0-9]+)%.*/\1/')
+    printf '%s\n' "$v"   # the statusline emits no trailing newline — add one
+  done
+}
+res=$(hys_seq 11 0 12)
+if [ "$res" = $'89\n89\n88' ]; then
+  ok "hysteresis: 89→100→88 shows 89→89→88 (phantom held, fall at once)"
+else
+  bad "hysteresis: 89→100→88 shows 89→89→88 (phantom held, fall at once)"
+fi
+rm -f "$HY/.ctx-sb-hyst"
+res=$(hys_seq 11 0 0)
+if [ "$res" = $'89\n89\n100' ]; then
+  ok "hysteresis: two consecutive identical 100s confirm the jump"
+else
+  bad "hysteresis: two consecutive identical 100s confirm the jump"
+fi
+rm -f "$HY/.ctx-sb-hyst"
+res=$(hys_seq 11 0 3 3)
+if [ "$res" = $'89\n89\n97\n97' ]; then
+  ok "hysteresis: 97 after 89 is a small rise — shows at once, pending 100 dropped"
+else
+  bad "hysteresis: 97 after 89 is a small rise — shows at once, pending 100 dropped"
+fi
+rm -f "$HY/.ctx-sb-hyst"
+res=$(hys_seq 11 30)
+if [ "$res" = $'89\n70' ]; then
+  ok "hysteresis: falls show at once (89→70)"
+else
+  bad "hysteresis: falls show at once (89→70)"
+fi
+rm -f "$HY/.ctx-sb-hyst"
+res=$(hys_seq 0 0)
+if [ "$res" = $'100\n100' ]; then
+  ok "hysteresis: fresh 100 shows at once (no prior context to hold from)"
+else
+  bad "hysteresis: fresh 100 shows at once (no prior context to hold from)"
+fi
+printf '89|0|0|%s\n' "$(( NOW - 400 ))" >"$HY/.ctx-sb-hyst"
+res=$(hys_seq 0)
+if [ "$res" = "100" ]; then
+  ok "hysteresis: state older than 300s is stale, jump accepted immediately"
+else
+  bad "hysteresis: state older than 300s is stale, jump accepted immediately"
+fi
+
+# ---- statusline: ZAI_SB_DEBUG logs incidents only ----
+rm -f "$HY/statusline-debug.log" "$HY/.ctx-sb-hyst"
+ZAI_SB_DEBUG=1 hys_seq 11 >/dev/null   # first frame: raw==shown, no previous — silent
+ZAI_SB_DEBUG=1 hys_seq 0  >/dev/null   # held jump: raw=100 shown=89
+ZAI_SB_DEBUG=1 hys_seq 12 >/dev/null   # accepted change: shown 88 != previous 89
+if [ "$(wc -l <"$HY/statusline-debug.log" 2>/dev/null)" = "2" ]; then
+  ok "debug: hold and change log a line each, first frame stays silent"
+else
+  bad "debug: hold and change log a line each, first frame stays silent"
+fi
+if grep -q "used=0|remaining=100|shown=89|held=1" "$HY/statusline-debug.log" 2>/dev/null; then
+  ok "debug: the held line carries raw, shown and the held flag"
+else
+  bad "debug: the held line carries raw, shown and the held flag"
+fi
+if [ -n "$(find "$HY" -name statusline-debug.log -perm 0600)" ]; then
+  ok "debug: log is user-private (0600)"
+else
+  bad "debug: log is user-private (0600)"
+fi
+ZAI_SB_DEBUG=1 hys_seq 12 >/dev/null   # steady repeat: same value, nothing to log
+if [ "$(wc -l <"$HY/statusline-debug.log")" = "2" ]; then
+  ok "debug: steady renders write nothing"
+else
+  bad "debug: steady renders write nothing"
+fi
+# the atomic state write must not leave temp files behind
+hys_seq 5 >/dev/null                   # an accepted change — one state write
+if [ "$(find "$HY" -name '.ctx*' | wc -l)" = "1" ]; then
+  ok "hysteresis: atomic state write leaves exactly the state file, no temps"
+else
+  bad "hysteresis: atomic state write leaves exactly the state file, no temps"
+fi
+rm -rf "$HY"
 rm -rf "$FIXD"
 
 # ---- hook: pre stamps the turn flag, post clears it ----
@@ -301,11 +433,12 @@ fi
 # ---- statusline: window labels follow number, not reset order ----
 # the 7-day window (number=7) resets SOONER than the 5-hour one: labels must
 # still read 5h first, 7d second
+TDIR=$(mktemp -d)   # isolated ZAI_QUOTA_DIR: hysteresis state must not touch the live dir
 FIX2=$(mktemp)
 jq -n --argjson ts "$NOW"   '{fetched_at:$ts, data:{limits:[
      {type:"TOKENS_LIMIT",percentage:10,number:7,unit:3,nextResetTime:(($ts+3600)*1000)},
      {type:"TOKENS_LIMIT",percentage:90,number:5,unit:1,nextResetTime:(($ts+172800)*1000)}]}}' > "$FIX2"
-out=$(printf '%s' "$IN" | env ZAI_SB_CACHE="$FIX2" bash scripts/zai-statusline.sh 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g')
+out=$(printf '%s' "$IN" | env ZAI_QUOTA_DIR="$TDIR" ZAI_SB_CACHE="$FIX2" bash scripts/zai-statusline.sh 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g')
 if [[ "$out" == *'5h'*'90%'*'7d'* ]]; then
   ok "statusline: labels follow window number, not reset order"
 else
@@ -320,13 +453,27 @@ FIX4=$(mktemp)
 jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[
      {type:"TOKENS_LIMIT",percentage:30,number:5,unit:1,nextResetTime:(($ts+9930)*1000)},
      {type:"TOKENS_LIMIT",percentage:60,number:7,unit:3,nextResetTime:(($ts+104130)*1000)}]}}' > "$FIX4"
-out=$(printf '%s' "$IN" | env ZAI_SB_CACHE="$FIX4" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
+out=$(printf '%s' "$IN" | env ZAI_QUOTA_DIR="$TDIR" ZAI_SB_CACHE="$FIX4" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
 if [[ "$out" == *"2h 45m"* && "$out" == *"1d 4h"* ]]; then
   ok "statusline: remaining time separates units (\"2h 45m\", \"1d 4h\")"
 else
   bad "statusline: remaining time separates units (\"2h 45m\", \"1d 4h\")"
 fi
 rm -f "$FIX4"
+
+# ---- statusline: credit-only plans read quota, not 5h ----
+# the CREDIT_LIMIT fallback kept hard-coded 5h/7d labels; a lite plan has no
+# token windows, so it renders one bar labeled quota and no weekly segment
+FIX5=$(mktemp)
+jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[{type:"CREDIT_LIMIT",percentage:37,nextResetTime:(($ts+7200)*1000)}]}}' > "$FIX5"
+out=$(printf '%s' "$IN" | env ZAI_QUOTA_DIR="$TDIR" ZAI_SB_CACHE="$FIX5" bash scripts/zai-statusline.sh 2>&1 | strip_ansi)
+if [[ "$out" == *'quota'* && "$out" == *'37%'* ]] && [[ "$out" != *'5h'* ]] && [[ "$out" != *'7d'* ]]; then
+  ok "statusline: credit-only plan is one quota bar (no 5h/7d labels)"
+else
+  bad "statusline: credit-only plan is one quota bar (no 5h/7d labels)"
+fi
+rm -f "$FIX5"
+rm -rf "$TDIR"
 
 # ---- statusline: a passed reset time nudges one throttled refresh ----
 # the hooks refresh on prompts and turn ends only, so a window that rolls over
@@ -365,12 +512,125 @@ else
 fi
 rm -rf "$TH"
 
+# ---- statusline: missing cache + config.env nudges one throttled fetch ----
+# If the session hook never ran (killed, missed install), the first render sees
+# no cache at all; with credentials on disk it must nudge one background --force
+# fetch (same stamp/throttle as the rollover nudge) so the next render shows
+# data. A present-but-unparsable cache must NOT nudge (n/a may just be an empty
+# or unsupported quota response), and neither must an install without config.env.
+# config.env points at a closed loopback port, so the spawned fetch fails
+# instantly and never touches the network from the suite.
+NH=$(mktemp -d)
+printf 'ANTHROPIC_AUTH_TOKEN=dummy-test-token\nANTHROPIC_BASE_URL=http://127.0.0.1:1\n' >"$NH/config.env"
+run_sb "$NH"
+if [ -f "$NH/.rollrefresh" ]; then
+  ok "self-heal: missing cache with config.env nudges one fetch"
+else
+  bad "self-heal: missing cache with config.env nudges one fetch"
+fi
+n1=$(cat "$NH/.rollrefresh" 2>/dev/null)
+run_sb "$NH"
+n2=$(cat "$NH/.rollrefresh" 2>/dev/null)
+if [ -n "$n1" ] && [ "$n1" = "$n2" ]; then
+  ok "self-heal: re-renders within the minute do not re-nudge"
+else
+  bad "self-heal: re-renders within the minute do not re-nudge"
+fi
+NH2=$(mktemp -d)
+run_sb "$NH2"
+if [ ! -f "$NH2/.rollrefresh" ]; then
+  ok "self-heal: no config.env stays quiet"
+else
+  bad "self-heal: no config.env stays quiet"
+fi
+NH3=$(mktemp -d)
+printf 'not json at all' >"$NH3/quota.cache"
+printf 'ANTHROPIC_AUTH_TOKEN=dummy-test-token\nANTHROPIC_BASE_URL=http://127.0.0.1:1\n' >"$NH3/config.env"
+run_sb "$NH3"
+if [ ! -f "$NH3/.rollrefresh" ]; then
+  ok "self-heal: present-but-unparsable cache stays quiet"
+else
+  bad "self-heal: present-but-unparsable cache stays quiet"
+fi
+rm -rf "$NH" "$NH2" "$NH3"
+
+# ---- statusline: the nudge claim is atomic across parallel renders ----
+# two Claude windows on one project render concurrently; a PID-symlink claim
+# (same idiom as the fetch lock) must let exactly one of them spawn the fetch
+NHL=$(mktemp -d)
+printf 'ANTHROPIC_AUTH_TOKEN=dummy-test-token\nANTHROPIC_BASE_URL=http://127.0.0.1:1\n' >"$NHL/config.env"
+ln -s "$$" "$NHL/.rollrefresh.lock"   # a live sibling render — this shell — holds the claim
+run_sb "$NHL"
+if [ ! -f "$NHL/.rollrefresh" ]; then
+  ok "self-heal: a live sibling claim defers the nudge"
+else
+  bad "self-heal: a live sibling claim defers the nudge"
+fi
+rm -f "$NHL/.rollrefresh.lock"
+run_sb "$NHL"
+if [ -f "$NHL/.rollrefresh" ]; then
+  ok "self-heal: a free claim nudges normally"
+else
+  bad "self-heal: a free claim nudges normally"
+fi
+# a hook fetch in flight writes the cache itself — the nudge defers to it,
+# keeping a cold start at one fetch instead of two
+ln -s "$$" "$NHL/.fetch.lock"
+rm -f "$NHL/.rollrefresh"
+run_sb "$NHL"
+if [ ! -f "$NHL/.rollrefresh" ]; then
+  ok "self-heal: an in-flight hook fetch defers the nudge"
+else
+  bad "self-heal: an in-flight hook fetch defers the nudge"
+fi
+rm -f "$NHL/.fetch.lock"
+run_sb "$NHL"
+if [ -f "$NHL/.rollrefresh" ]; then
+  ok "self-heal: with the hook done, the nudge fires again"
+else
+  bad "self-heal: with the hook done, the nudge fires again"
+fi
+# the nudge routes its fetch through the hook wrapper: lock, dedup and
+# hook.log visibility all come along (bounded wait for the background spawn)
+NHH=$(mktemp -d)
+printf 'ANTHROPIC_AUTH_TOKEN=dummy-test-token\nANTHROPIC_BASE_URL=http://127.0.0.1:1\n' >"$NHH/config.env"
+run_sb "$NHH"
+n=0
+while [ "$n" -lt 30 ] && ! grep -q "session: force fetch" "$NHH/hook.log" 2>/dev/null; do
+  sleep 0.1; n=$((n + 1))
+done
+if grep -q "session: force fetch" "$NHH/hook.log" 2>/dev/null; then
+  ok "self-heal: the nudge fetch goes through the hook wrapper"
+else
+  bad "self-heal: the nudge fetch goes through the hook wrapper"
+fi
+rm -rf "$NHH"
+
 ESC=$(printf '\033')
 # \033[2J on purpose: the suite's ANSI-stripper only masks m-terminated SGR
 # codes, so a clear-screen escape in the output would still be detected
 absent "statusline: mapping values sanitized (no ANSI)" "$ESC" \
   env ANTHROPIC_DEFAULT_SONNET_MODEL=$'EVIL\033[2JGLM-9' ZAI_SB_CACHE=/tmp/zai-ci-nope \
   bash scripts/zai-statusline.sh <<< '{"model":{"display_name":"Sonnet 4.5"}}'
+
+# ---- hook: session sweep spares live parallel sessions ----
+# a new session must not wipe another live session's pulse flag or hysteresis
+# state; only genuinely stale files (older than the readers' own caps) go
+TH=$(mktemp -d)
+mkdir -p "$TH/.claude/zaiquota"
+printf '%s\n' "$NOW" >"$TH/.claude/zaiquota/.turn-live"
+printf '50|0|0|%s\n' "$NOW" >"$TH/.claude/zaiquota/.ctx-live"
+printf '%s\n' "$(( NOW - 90000 ))" >"$TH/.claude/zaiquota/.turn-dead"
+printf '50|0|0|%s\n' "$(( NOW - 90000 ))" >"$TH/.claude/zaiquota/.ctx-dead"
+printf '{}' | env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR \
+  HOME="$TH" bash scripts/quota-hook.sh session >/dev/null 2>&1
+if [ -f "$TH/.claude/zaiquota/.turn-live" ] && [ -f "$TH/.claude/zaiquota/.ctx-live" ] \
+   && [ ! -f "$TH/.claude/zaiquota/.turn-dead" ] && [ ! -f "$TH/.claude/zaiquota/.ctx-dead" ]; then
+  ok "hook: session sweep removes stale state, keeps live parallel sessions"
+else
+  bad "hook: session sweep removes stale state, keeps live parallel sessions"
+fi
+rm -rf "$TH"
 
 # ---- hook: isolated HOME, no credentials -> logs the attempt, still exit 0 ----
 # (env -u strips any inherited ANTHROPIC_* so the test never touches the network)
@@ -536,10 +796,12 @@ fi
 # shellcheck disable=SC2016
 if grep -q '${CLAUDE_PLUGIN_ROOT}/scripts' hooks/hooks.json \
    && grep -qF '${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}' hooks/hooks.json \
-   && ! jq -e '.hooks.SessionStart[0].hooks[0].async == true' hooks/hooks.json >/dev/null 2>&1; then
-  ok "hooks.json: plugin root + stable path contract"
+   && [ "$(jq '.hooks.SessionStart[0].hooks | length' hooks/hooks.json)" = "2" ] \
+   && ! jq -e '.hooks.SessionStart[0].hooks[0].async == true' hooks/hooks.json >/dev/null 2>&1 \
+   && jq -e '.hooks.SessionStart[0].hooks[1].async == true' hooks/hooks.json >/dev/null 2>&1; then
+  ok "hooks.json: sync entry blocks, session fetch is async, stable-path contract"
 else
-  bad "hooks.json: plugin root + stable path contract"
+  bad "hooks.json: sync entry blocks, session fetch is async, stable-path contract"
 fi
 
 printf '\n%d passed, %d failed, %d skipped\n' "$pass" "$fail" "$skip"
