@@ -108,7 +108,10 @@ check  "statusline: plain status dot renders" "$MAC_DOT" \
 if command -v python3 >/dev/null 2>&1; then
   NOPATH=$(mktemp -d)
   for t in bash sh cat uname date sed tr cut head dirname python3 env mktemp chmod rm grep; do
-    p=$(command -v "$t" 2>/dev/null) && ln -s "$p" "$NOPATH/$t"
+    # type -P: PATH-resolved EXECUTABLE only — `command -v` can return a shell
+    # function's bare name (this session had grep wrapped), producing a symlink
+    # that points at itself
+    p=$(type -P "$t" 2>/dev/null) && ln -s "$p" "$NOPATH/$t"
   done
   # remaining-time tokens ("3h 0m") are masked before comparing: the two renders
   # can straddle a minute boundary, which changes the string but not the parser
@@ -866,6 +869,56 @@ if grep -qF -- '-H @-' scripts/quota-fetch.sh \
 else
   bad "security: token fed to curl via stdin, not argv (invisible to ps)"
 fi
+# runtime proof (vs the source-level guard above): a fake curl records its argv
+# and stdin — argv is exactly what ps would see — and serves canned responses.
+# Run 1: healthy 200 → the token appears only in stdin, the cache is written.
+# Run 2: a 401 whose body ECHOES the token back → the log must show [REDACTED].
+FAKEPATH=$(mktemp -d)
+for t in bash sh cat uname date sed tr cut head tail dirname python3 env mktemp mkdir chmod rm grep jq awk mv sleep; do
+  # type -P, not command -v: same self-symlink trap as the jqsh loop above
+  p=$(type -P "$t" 2>/dev/null) && ln -s "$p" "$FAKEPATH/$t"
+done
+cat > "$FAKEPATH/curl" <<'SHIM'
+#!/usr/bin/env bash
+# test shim: records argv+stdin, serves $FAKE_CODE with $FAKE_BODY
+cap="$FAKE_CAP"
+{ printf 'ARGS\n'; printf '%s\n' "$@"; printf 'STDIN\n'; cat; } > "$cap"
+out=''; prev=''
+for a in "$@"; do
+  [ "$prev" = "-o" ] && out="$a"
+  prev=$a
+done
+[ -n "$out" ] && printf '%s' "$FAKE_BODY" > "$out"
+printf '%s' "$FAKE_CODE"
+SHIM
+chmod +x "$FAKEPATH/curl"
+FDIR=$(mktemp -d)
+mkdir -p "$FDIR/.claude/zaiquota"
+printf 'ANTHROPIC_BASE_URL=https://127.0.0.1:1/api/anthropic\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' > "$FDIR/.claude/zaiquota/config.env"
+run_fakesb() { # $1=http code $2=body — fetch through the shim, capture output
+  FAKE_CAP="$FDIR/cap" FAKE_CODE="$1" FAKE_BODY="$2" \
+    env -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CONFIG_DIR -u ZAI_QUOTA_DIR \
+    PATH="$FAKEPATH" HOME="$FDIR" bash scripts/quota-fetch.sh --force 2>&1
+}
+BODY='{"data":{"limits":[{"type":"TOKENS_LIMIT","percentage":5,"nextResetTime":99999999999999}]}}'
+out=$(run_fakesb 200 "$BODY"); rc=$?
+args=$(sed -n '/^ARGS$/,/^STDIN$/p' "$FDIR/cap")
+stdin=$(sed -n '/^STDIN$/,$p' "$FDIR/cap" | tail -n +2)
+if [ "$rc" -eq 0 ] && [[ "$stdin" == *"Authorization: DUMMY_TOKEN_VALUE"* ]] \
+   && ! [[ "$args" == *"DUMMY_TOKEN_VALUE"* ]] \
+   && grep -qx -- '-q' <<<"$args" && grep -qx -- '-H' <<<"$args" && grep -qx -- '@-' <<<"$args" \
+   && jq -e '.data.limits[0].percentage == 5' "$FDIR/.claude/zaiquota/quota.cache" >/dev/null 2>&1; then
+  ok "security: runtime — token rides only in stdin, never in curl argv (what ps sees)"
+else
+  bad "security: runtime — token rides only in stdin, never in curl argv (exit $rc)"
+fi
+out=$(run_fakesb 401 '{"error":"echo DUMMY_TOKEN_VALUE back"}'); rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *'[REDACTED]'* ]] && [[ "$out" != *"DUMMY_TOKEN_VALUE"* ]]; then
+  ok "security: runtime — a hostile error body echoing the token is redacted before logging"
+else
+  bad "security: runtime — a hostile error body echoing the token is redacted before logging (exit $rc)"
+fi
+rm -rf "$FAKEPATH" "$FDIR"
 TH=$(mktemp -d)
 mkdir -p "$TH/.claude/zaiquota"
 printf 'ANTHROPIC_BASE_URL=https://127.0.0.1:1/api/anthropic\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' > "$TH/.claude/zaiquota/config.env"

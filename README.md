@@ -322,16 +322,18 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 
 ## Security
 
-- The token lives on disk only in `~/.claude/zaiquota/config.env` — create it with
-  `chmod 600` (the install steps above do this). It is read by `quota-fetch.sh` and
-  nothing else. Exported `ANTHROPIC_*` environment variables take precedence and are
-  never written anywhere by the plugin.
+- If configured through `config.env`, the token is stored only in that file — create it
+  with `chmod 600` (the install steps above do this). It is read by `quota-fetch.sh` and
+  nothing else. Environment-provided tokens (`ANTHROPIC_*`, which take precedence) are
+  never written to disk by the plugin.
 - `config.env` is **parsed, never executed** (plain `KEY=VALUE` lines): a tampered file
   cannot run code. It must be a regular file owned by you, and its permissions are
   tightened to `0600` automatically on every fetch.
-- The token is sent **only** to your configured base URL and **only over https** — a
-  plain-http base URL is refused with an error (loopback addresses excepted, for local
-  testing).
+- The token is sent **only** in the `Authorization` header of the configured quota
+  request, **only over https** — a plain-http base URL is refused with an error
+  (loopback addresses excepted, for local testing). A proxy configured through the
+  environment (`HTTPS_PROXY` etc.) would still sit in the request path — standard curl
+  behavior.
 - A HTTP 200 is validated against the expected response shape (`data.limits` array)
   before it can replace the cache — proxy splash pages can't poison it.
 - The statusline renders from the local cache only: no network access of its own; model

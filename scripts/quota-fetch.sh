@@ -51,7 +51,8 @@ if [ -e "$CFG" ]; then
     echo "ERROR: $CFG must be a regular file owned by you — refusing to read it" >&2
     exit 1
   fi
-  chmod 600 "$CFG" 2>/dev/null || true   # self-heal overly wide permissions
+  chmod 600 "$CFG" 2>/dev/null || \
+    echo "WARNING: could not tighten $CFG to 0600 — the filesystem may not support permissions; check who can read it" >&2   # self-heal overly wide permissions; never silently continue on failure
 fi
 ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-$(cfg ANTHROPIC_AUTH_TOKEN)}"
 ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-$(cfg ANTHROPIC_BASE_URL)}"
@@ -87,6 +88,19 @@ case "$domain" in
 esac
 url="${domain}/api/monitor/usage/quota/limit"
 
+redact() { # $1=secret — stdin -> stdout with the secret replaced by [REDACTED].
+  # index()-based, deliberately NOT a regex: tokens are arbitrary strings and a
+  # hostile endpoint echoing the Authorization header must never reach the log.
+  SECRET=$1 awk '{
+    i = index($0, ENVIRON["SECRET"])
+    while (i) {
+      $0 = substr($0, 1, i - 1) "[REDACTED]" substr($0, i + length(ENVIRON["SECRET"]))
+      i = index($0, ENVIRON["SECRET"])
+    }
+    print
+  }'
+}
+
 mkdir -p "$DIR"
 tmp=$(mktemp "$DIR/.fetch.XXXXXX")   # unique per process: parallel fetches never collide
 out=$(mktemp "$DIR/.fetch.XXXXXX")   # same directory as the cache: rename is atomic
@@ -105,7 +119,7 @@ http=$(printf 'Authorization: %s\n' "$ANTHROPIC_AUTH_TOKEN" | \
 
 if [ "$http" != "200" ]; then
   echo "ERROR: HTTP $http" >&2
-  head -c 2000 "$tmp" >&2   # error body only, truncated
+  head -c 2000 "$tmp" | redact "$ANTHROPIC_AUTH_TOKEN" >&2   # error body only, truncated, token redacted (a hostile endpoint can echo it)
   echo >&2
   exit 1
 fi
@@ -114,7 +128,7 @@ fi
 # A 200 with a junk body (proxy splash page, empty object) must not poison it.
 if ! jq -e '(.data | type == "object") and (.data.limits | type == "array")' "$tmp" >/dev/null 2>&1; then
   echo "ERROR: unexpected response shape (no data.limits array) — cache left untouched" >&2
-  head -c 2000 "$tmp" >&2
+  head -c 2000 "$tmp" | redact "$ANTHROPIC_AUTH_TOKEN" >&2
   echo >&2
   exit 1
 fi
