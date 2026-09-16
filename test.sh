@@ -1013,7 +1013,12 @@ if command -v python3 >/dev/null 2>&1; then
   kill "$SRVPID" 2>/dev/null
   rm -rf "$TH"
 else
+  # python3 missing: the whole server block is unreachable — skip all four
+  # server-fed checks so the tally always sums (same as the bind-failure path)
   skipped "junk-200 (python3 missing)"
+  skipped "valid 200 writes a 0600 cache (python3 missing)"
+  skipped "empty limits leaves a good cache untouched (python3 missing)"
+  skipped "empty limits with no cache seeds nothing (python3 missing)"
 fi
 
 # ---- hooks.json contract ----
