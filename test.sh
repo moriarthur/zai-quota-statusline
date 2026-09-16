@@ -399,17 +399,31 @@ else
 fi
 rm -f "$HY/.ctx-sb-hyst"
 res=$(hys_seq 11 0 0)
-if [ "$res" = $'89\n89\n100' ]; then
-  ok "hysteresis: two consecutive identical 100s confirm the jump"
+if [ "$res" = $'89\n89\n89' ]; then
+  ok "hysteresis: a 100 placeholder never confirms over a shown value"
 else
-  bad "hysteresis: two consecutive identical 100s confirm the jump"
+  bad "hysteresis: a 100 placeholder never confirms over a shown value"
+fi
+rm -f "$HY/.ctx-sb-hyst"
+res=$(hys_seq 11 0 0 0 0 0)
+if [ "$res" = $'89\n89\n89\n89\n89\n89' ]; then
+  ok "hysteresis: a placeholder lasting 5 frames (the live ~5 s report) never shows 100"
+else
+  bad "hysteresis: a placeholder lasting 5 frames (the live ~5 s report) never shows 100"
+fi
+rm -f "$HY/.ctx-sb-hyst"
+res=$(hys_seq 50 0 0 20 20)
+if [ "$res" = $'50\n50\n50\n50\n80' ]; then
+  ok "hysteresis: after a /clear the next real frames confirm the new figure (100 skipped)"
+else
+  bad "hysteresis: after a /clear the next real frames confirm the new figure (100 skipped)"
 fi
 rm -f "$HY/.ctx-sb-hyst"
 res=$(hys_seq 11 0 3 3)
 if [ "$res" = $'89\n89\n97\n97' ]; then
-  ok "hysteresis: 97 after 89 is a small rise — shows at once, pending 100 dropped"
+  ok "hysteresis: 97 after 89 is a small rise — shows at once (100 placeholder ignored)"
 else
-  bad "hysteresis: 97 after 89 is a small rise — shows at once, pending 100 dropped"
+  bad "hysteresis: 97 after 89 is a small rise — shows at once (100 placeholder ignored)"
 fi
 rm -f "$HY/.ctx-sb-hyst"
 res=$(hys_seq 11 30)

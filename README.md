@@ -213,11 +213,13 @@ response) is left alone.
 The context-left number is filtered too. Claude Code's payload computes
 `remaining_percentage` as `100 − used_percentage` in one expression — the statusline
 reads `used_percentage` alone — but the payload builder has no zero-usage guard (the
-`/context` path does), so a transient placeholder usage can arrive as
-`used_percentage: 0` and flash "context left 100%" for a few renders. A rise of ≥10
-points in context-left is held until it repeats on two consecutive identical frames —
-per-session state, older than 300 s ignored — so the phantom never shows while a real
-compaction lands about two seconds late. Falls and smaller rises show immediately.
+`/context` path does), so a streaming placeholder arrives as `used_percentage: 0` and
+would flash "context left 100%". The placeholder can persist for whole seconds, so two
+defenses stack: a rise of ≥10 points is held until it repeats on two consecutive
+identical frames, and a literal 100 is never shown over an already-displayed value at
+all — `used = 0` is exactly what the placeholder looks like. State is per session,
+older than 300 s ignored; falls and smaller rises show immediately; a genuine `/clear`
+updates the figure on the first real (used > 0) frame after it.
 
 The dollar figure is `cost.total_cost_usd` — Claude Code's own client-side list-price
 estimate for the session (reset by `/clear`), **not** the Z.AI invoice. A value that is

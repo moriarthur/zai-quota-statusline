@@ -258,12 +258,15 @@ q=${q%' '}   # drop one trailing space so the `·` separator below isn't doubled
 # The statusline payload builder (VAt in the CC binary) lacks the zero-usage
 # guard its /context path has, so a transient zero-sum usage object — a streaming
 # message's placeholder — arrives as used_percentage:0 and the line flashes
-# "context left 100%" for a few 1 Hz frames until the real response usage lands.
-# Hold such jumps: a rise of >= ZAI_SB_CTX_JUMP points (default 10) displays only
-# after it repeats on 2 CONSECUTIVE identical frames; falls and smaller rises
-# show at once. State is per session in ".ctx[-<sid>]" (shown|candidate|count|ts),
-# left untouched by steady renders, stale after 300 s. A real compaction lands
-# ~2 s late — held briefly, never hidden.
+# "context left 100%" until the real response usage lands. The placeholder can
+# persist for MANY frames (observed ~5 s at a 1 Hz floor), so a jump >=
+# ZAI_SB_CTX_JUMP points (default 10) is held until it repeats on 2 CONSECUTIVE
+# identical frames AND a literal 100 is never accepted over an existing shown
+# value at all: used=0 is exactly what the placeholder looks like, and the only
+# honest way to display a real /clear is the next real (used > 0) frame. Falls
+# and smaller rises show at once. State is per session in ".ctx[-<sid>]"
+# (shown|candidate|count|ts), left untouched by steady renders, stale after
+# 300 s. A real compaction lands ~2 s late — held briefly, never hidden.
 CTX_HOLD_PTS=${ZAI_SB_CTX_JUMP:-10}
 ctx_hyst() { # $1=raw ctxl -> prints the value to display
   local st="$DIR/.ctx${sid:+-$sid}" V=$1 S='' C=0 N=0 T=0 prev show nS nC nN tmp
@@ -273,7 +276,14 @@ ctx_hyst() { # $1=raw ctxl -> prints the value to display
   fi
   prev=$S
   if [ -n "$S" ] && [ $(( now - T )) -le 300 ]; then
-    if [ "$V" -le "$S" ] || [ $(( V - S )) -lt "$CTX_HOLD_PTS" ]; then
+    if [ "$V" -eq 100 ]; then
+      # used_percentage:0 — the payload's streaming placeholder. It can persist
+      # for many frames (observed ~5 s at a 1 Hz floor), so the two-frame
+      # confirmation never sees it end: once a real value has been shown this
+      # session, a literal 100 NEVER displaces it — nor a pending confirmation.
+      # A genuine /clear updates on the first real (used > 0) frame instead.
+      show=$S; nS=$S; nC=$C; nN=$N
+    elif [ "$V" -le "$S" ] || [ $(( V - S )) -lt "$CTX_HOLD_PTS" ]; then
       show=$V; nS=$V; nC=0; nN=0              # fall or small rise: show at once
     elif [ "$C" = "$V" ] && [ "$N" -ge 1 ]; then
       nN=$(( N + 1 ))

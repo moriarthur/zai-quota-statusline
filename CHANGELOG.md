@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.23 — 2026-09-16
+The context-left phantom is dead for good. The payload's streaming placeholder
+(`used_percentage: 0`) turned out to persist for whole seconds — longer than the
+two-frame confirmation the hysteresis waited for, so "context left 100%" flashed
+back through. A literal 100 is now never shown over an existing value at all: it
+is treated as the placeholder it (almost) always is, a pending jump confirmation
+survives it, and a genuine /clear updates on the first real (used > 0) frame.
+Also carries the post-0.1.22 hardening: the token rides to curl via a stdin-fed
+header (invisible to `ps`, user `.curlrc` ignored), echoed error bodies are
+redacted before logging, a failed chmod warns loudly, and the repo gained
+SECURITY.md, CONTRIBUTING.md and issue templates.
+
 ## 0.1.22 — 2026-09-16
 Credentials now follow one resolution order everywhere: the environment first,
 `config.env` second (that order always existed in the fetcher — the docs and the
