@@ -1,4 +1,4 @@
-# zai-quota-statusline
+# Z.AI Quota Statusline for Claude Code
 
 [![CI](https://github.com/moriarthur/zai-quota-statusline/actions/workflows/ci.yml/badge.svg)](https://github.com/moriarthur/zai-quota-statusline/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/moriarthur/zai-quota-statusline)](https://github.com/moriarthur/zai-quota-statusline/releases)
@@ -266,7 +266,8 @@ just never got redrawn. Work through these in order:
    the default, while the line keeps re-rendering.
 4. If the cache still never appears, check the credentials: either a `config.env` that is
    a regular file owned by you containing `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`
-   (permissions are tightened to `600` automatically on every fetch), or the same two
+   (the plugin attempts to tighten its permissions to `0600` on every fetch and warns if
+   the filesystem refuses), or the same two
    variables exported in the environment Claude Code runs in — the fetcher reads the
    environment first, the file second. Fetch errors explain themselves in `hook.log`.
 
@@ -299,7 +300,7 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 | `ZAI_HOOK_FETCH_TIMEOUT` | `15` | Hard timeout (s) for a single fetch |
 | `ZAI_REFRESH_MIN` | `600` | Min age (s) of the cache before a plain (non-forced) fetch re-requests |
 | `ZAI_ROLL_MIN` | `60` | Throttle (s) for the statusline's background forced refreshes — window rollover and missing-cache self-heal (shared stamp) |
-| `ZAI_SB_CTX_JUMP` | `10` | Min rise (points) in context-left treated as a jump — held until it repeats on 2 identical frames |
+| `ZAI_SB_CTX_JUMP` | `10` | Min rise (points) in context-left treated as a jump — held until it repeats on 2 identical frames. A literal 100 (used 0 placeholder) is never accepted over an existing value at all |
 | `ZAI_SB_DEBUG` | `0` | `1` = log incidents (held jumps, displayed changes) to `statusline-debug.log` — diagnostics only |
 | `ZAI_FETCH_CURL_TIMEOUT` | `20` | Hard curl timeout (s) for a single request |
 | `ZAI_SB_SEGMENTS` | `10` | Bar length in cells |
