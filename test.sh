@@ -378,8 +378,10 @@ fi
 
 # ---- statusline: context-left hysteresis over sequential frames ----
 # The CC statusline payload can carry a transient zero-sum usage object (used_
-# percentage:0 → remaining=100). A live reading never has used=0, so a literal
-# 100 is the placeholder and is never rendered at all: an existing shown value
+# percentage:0 → remaining=100). A real reading never rounds to used=0 (the
+# context would have to sit under half a percent of the window — below the
+# system-prompt floor), so a literal 100 is the placeholder and is never
+# rendered at all: an existing shown value
 # is held (fresh or stale state), and before the first real frame the segment
 # stays hidden. Other rises of >=10 points display only after they repeat on
 # two CONSECUTIVE identical frames; falls show at once. Each scenario drives

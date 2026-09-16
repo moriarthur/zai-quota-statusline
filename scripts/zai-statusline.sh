@@ -259,9 +259,12 @@ q=${q%' '}   # drop one trailing space so the `·` separator below isn't doubled
 # guard its /context path has, so a transient zero-sum usage object — a streaming
 # message's placeholder — arrives as used_percentage:0 and the line would flash
 # "context left 100%" until the real response usage lands. remaining=100 means
-# used=0, and NO live reading ever looks like that: even a bare session keeps
-# the system prompt in context, so used stays above 0 (CC's /context path guards
-# the same case). A literal 100 is therefore never rendered at all. With a shown
+# used=0. A REAL used=0 would need the whole context under half a percent of
+# the window (r < window/200) — far below the system-prompt floor of any CC
+# session — and all-zero counters are the placeholder's own zero-init usage
+# object, i.e. a non-reading by information; CC's /context path guards
+# zero-usage the same way (the payload builder just lacks the guard). A literal
+# 100 is therefore never rendered. With a shown
 # value on file it is HELD — fresh or stale state alike, because the placeholder
 # strikes exactly when the state looks oldest: steady renders never rewrite the
 # timestamp, so any pause longer than the staleness window lands mid-turn. With

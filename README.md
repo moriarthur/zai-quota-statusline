@@ -216,8 +216,9 @@ reads `used_percentage` alone — but the payload builder has no zero-usage guar
 `/context` path does), so a streaming placeholder arrives as `used_percentage: 0` and
 would flash "context left 100%". The placeholder can persist for whole seconds, so the
 first defense is absolute: a literal 100 is never rendered at all — a live reading
-always has context in use (even a bare session keeps the system prompt), so `used = 0`
-is exactly what the placeholder looks like. An already-displayed value is held through
+always has context in use (usage would have to round below half a percent of the
+window, under the system prompt every session carries), so `used = 0` is exactly what
+the placeholder looks like. An already-displayed value is held through
 the placeholder (whatever the state's age — the placeholder strikes mid-turn, when the
 state looks oldest), and before the first real frame of a session the segment simply
 stays hidden. Second defense: any other rise of ≥10 points is held until it repeats on
