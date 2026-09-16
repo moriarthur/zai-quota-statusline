@@ -967,8 +967,13 @@ if command -v python3 >/dev/null 2>&1; then
   done
   if [ -z "$PORT" ]; then
     # the environment cannot bind a test server (sandbox/CI restriction) —
-    # this is environmental, not a defect; skip rather than fail
+    # this is environmental, not a defect; skip rather than fail. ALL FOUR
+    # server-fed checks skip together: the tally must always sum to the total
+    # (a vanished check once made a reviewer's 107+1 look like a miscount).
     skipped "junk-200 (test server could not bind)"
+    skipped "valid 200 writes a 0600 cache (test server could not bind)"
+    skipped "empty limits leaves a good cache untouched (test server could not bind)"
+    skipped "empty limits with no cache seeds nothing (test server could not bind)"
   else
     printf '{"data":null}' > "$ENDPOINT"   # 200 with a junk body
     printf 'ANTHROPIC_BASE_URL=http://127.0.0.1:%s\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' "$PORT" > "$TH/.claude/zaiquota/config.env"

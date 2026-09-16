@@ -329,8 +329,9 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
   nothing else. Environment-provided tokens (`ANTHROPIC_*`, which take precedence) are
   never written to disk by the plugin.
 - `config.env` is **parsed, never executed** (plain `KEY=VALUE` lines): a tampered file
-  cannot run code. It must be a regular file owned by you, and its permissions are
-  tightened to `0600` automatically on every fetch.
+  cannot run code. It must be a regular file owned by you, and the plugin attempts to
+  tighten its permissions to `0600` on every fetch — warning if the filesystem does not
+  support it.
 - The token is sent **only** in the `Authorization` header of the configured quota
   request, **only over https** — a plain-http base URL is refused with an error
   (loopback addresses excepted, for local testing). A proxy configured through the
@@ -344,7 +345,10 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
   the same single-GET, https-only script the hooks use.)
 - `quota.cache`, `hook.log`, hook state and statusline state files — and the opt-in
   `statusline-debug.log` — are created with `0600` permissions.
-- The fetch output never echoes the token; error bodies from the API are truncated.
+- The fetch output never echoes the token; error bodies from the API are truncated and
+  the token is redacted from them before display. (The redaction itself passes the
+  token to a helper process through its environment — readable only by the same user,
+  no wider than the `0600` config file.)
 - Tests (`./test.sh`) strip `ANTHROPIC_*` from the environment and use dummy tokens, so
   CI logs can never capture real credentials.
 
