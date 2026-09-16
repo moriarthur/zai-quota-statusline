@@ -1,8 +1,8 @@
 {
   "name": "moriarthur",
-  "description": "Galart's Claude Code plugins",
+  "description": "Claude Code plugins by Artur Galstyan (Galart)",
   "owner": {
-    "name": "Galart",
+    "name": "Artur Galstyan (Galart)",
     "url": "https://github.com/moriarthur"
   },
   "plugins": [
@@ -10,7 +10,7 @@
       "name": "zai-quota-statusline",
       "source": ".",
       "description": "Native-feeling Z.AI / GLM quota statusline for Claude Code — event-driven hooks, no cron, no quota polling.",
-      "version": "0.1.20"
+      "version": "0.1.22"
     }
   ]
 }

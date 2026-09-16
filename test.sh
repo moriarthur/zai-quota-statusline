@@ -36,6 +36,17 @@ done
 for j in .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json; do
   if jq empty "$j" 2>/dev/null; then ok "jq $j"; else bad "jq $j"; fi
 done
+# the marketplace manifest repeats the plugin version — the two have drifted
+# apart before (marketplace said 0.1.20 through two releases); pin them together
+if command -v jq >/dev/null 2>&1; then
+  pv=$(jq -r '.version' .claude-plugin/plugin.json 2>/dev/null)
+  mv=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json 2>/dev/null)
+  if [ -n "$pv" ] && [ "$pv" = "$mv" ]; then
+    ok "manifests: marketplace version tracks plugin.json ($pv)"
+  else
+    bad "manifests: marketplace version ($mv) != plugin.json ($pv)"
+  fi
+fi
 if shellcheck scripts/*.sh test.sh 2>/dev/null; then
   ok "shellcheck"
 elif command -v shellcheck >/dev/null; then
