@@ -257,33 +257,44 @@ q=${q%' '}   # drop one trailing space so the `·` separator below isn't doubled
 # ---- context-left hysteresis ----
 # The statusline payload builder (VAt in the CC binary) lacks the zero-usage
 # guard its /context path has, so a transient zero-sum usage object — a streaming
-# message's placeholder — arrives as used_percentage:0 and the line flashes
-# "context left 100%" until the real response usage lands. The placeholder can
-# persist for MANY frames (observed ~5 s at a 1 Hz floor), so a jump >=
-# ZAI_SB_CTX_JUMP points (default 10) is held until it repeats on 2 CONSECUTIVE
-# identical frames AND a literal 100 is never accepted over an existing shown
-# value at all: used=0 is exactly what the placeholder looks like, and the only
-# honest way to display a real /clear is the next real (used > 0) frame. Falls
-# and smaller rises show at once. State is per session in ".ctx[-<sid>]"
-# (shown|candidate|count|ts), left untouched by steady renders, stale after
-# 300 s. A real compaction lands ~2 s late — held briefly, never hidden.
+# message's placeholder — arrives as used_percentage:0 and the line would flash
+# "context left 100%" until the real response usage lands. remaining=100 means
+# used=0, and NO live reading ever looks like that: even a bare session keeps
+# the system prompt in context, so used stays above 0 (CC's /context path guards
+# the same case). A literal 100 is therefore never rendered at all. With a shown
+# value on file it is HELD — fresh or stale state alike, because the placeholder
+# strikes exactly when the state looks oldest: steady renders never rewrite the
+# timestamp, so any pause longer than the staleness window lands mid-turn. With
+# no state at all (session start) there is nothing to hold, so nothing prints
+# and the segment stays hidden until the first real frame. Other rises >=
+# ZAI_SB_CTX_JUMP points (default 10) are held until they repeat on 2
+# CONSECUTIVE identical frames; falls and smaller rises show at once; a real
+# /clear updates on the first real (used > 0) frame. State is per session in
+# ".ctx[-<sid>]" (shown|candidate|count|ts), written only when the value moves.
+# A real compaction lands ~2 s late — held briefly, never hidden.
 CTX_HOLD_PTS=${ZAI_SB_CTX_JUMP:-10}
-ctx_hyst() { # $1=raw ctxl -> prints the value to display
+ctx_hyst() { # $1=raw ctxl -> prints the value to display ('' = no reading yet)
   local st="$DIR/.ctx${sid:+-$sid}" V=$1 S='' C=0 N=0 T=0 prev show nS nC nN tmp
   if [ -f "$st" ]; then
     IFS='|' read -r S C N T _ <"$st" 2>/dev/null
     S=$(num "$S"); C=$(num "$C"); N=$(num "$N"); T=$(num "$T")
   fi
   prev=$S
-  if [ -n "$S" ] && [ $(( now - T )) -le 300 ]; then
-    if [ "$V" -eq 100 ]; then
-      # used_percentage:0 — the payload's streaming placeholder. It can persist
-      # for many frames (observed ~5 s at a 1 Hz floor), so the two-frame
-      # confirmation never sees it end: once a real value has been shown this
-      # session, a literal 100 NEVER displaces it — nor a pending confirmation.
-      # A genuine /clear updates on the first real (used > 0) frame instead.
+  if [ "$V" -eq 100 ]; then
+    # used_percentage:0 — the streaming placeholder. It can persist for many
+    # frames (observed ~5 s at a 1 Hz floor), so no confirmation logic may see
+    # it end: a literal 100 NEVER displaces a shown value — nor a pending
+    # confirmation — and state age is irrelevant (see above). A shown=100 in
+    # the state is residue from the pre-fix releases' own fresh-100 writes —
+    # nothing to hold either. A genuine /clear updates on the first real
+    # (used > 0) frame instead.
+    if [ -n "$S" ] && [ "$S" -ne 100 ]; then
       show=$S; nS=$S; nC=$C; nN=$N
-    elif [ "$V" -le "$S" ] || [ $(( V - S )) -lt "$CTX_HOLD_PTS" ]; then
+    else
+      show=''; nS=''; nC=0; nN=0
+    fi
+  elif [ -n "$S" ] && [ $(( now - T )) -le 300 ]; then
+    if [ "$V" -le "$S" ] || [ $(( V - S )) -lt "$CTX_HOLD_PTS" ]; then
       show=$V; nS=$V; nC=0; nN=0              # fall or small rise: show at once
     elif [ "$C" = "$V" ] && [ "$N" -ge 1 ]; then
       nN=$(( N + 1 ))
@@ -295,7 +306,9 @@ ctx_hyst() { # $1=raw ctxl -> prints the value to display
   else
     show=$V; nS=$V; nC=0; nN=0                               # no/stale state: raw
   fi
-  if [ -z "$S" ] || [ "$nS|$nC|$nN" != "$S|$C|$N" ]; then
+  if [ -n "$nS" ] && { [ -z "$S" ] || [ "$nS|$nC|$nN" != "$S|$C|$N" ]; }; then
+    # ...and only with a value worth keeping: a placeholder over empty state
+    # writes nothing, so the file is never seeded with an empty shown field
     # process-unique temp + rename: a parallel render or the age sweep never
     # sees a torn file — same atomic idiom as the cache write
     tmp="$st.$$"
@@ -330,8 +343,10 @@ if [ -n "$ctxp" ]; then
   ctxp=$(num "$ctxp")
   [ "$ctxp" -gt 100 ] && ctxp=100
   ctxl=$(ctx_hyst "$(( 100 - ctxp ))")
-  ctxc=$(col "$(( 100 - ctxl ))")   # color tracks the DISPLAYED usage, not raw
-  extra+=$(printf '%scontext left \033[%sm%s%%\033[39m' "$c_dim" "$ctxc" "$ctxl")
+  if [ -n "$ctxl" ]; then   # '' = no reading yet (session-start placeholder)
+    ctxc=$(col "$(( 100 - ctxl ))")   # color tracks the DISPLAYED usage, not raw
+    extra+=$(printf '%scontext left \033[%sm%s%%\033[39m' "$c_dim" "$ctxc" "$ctxl")
+  fi
 fi
 # total_cost_usd is Claude Code's own list-price estimate for the session (reset
 # by /clear) — not the Z.AI invoice. A value that is not a number, or a negative

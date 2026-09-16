@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The phantom "context left 100 %" is dead in its last hiding spot.** The
+  1.0.0 filter never accepted a literal 100 over an already-shown value — but
+  only while the per-session state looked fresh. Steady renders never rewrite
+  the state timestamp, so any pause longer than the 300 s staleness window
+  (reading, thinking, an idle machine) made exactly the next prompt's
+  placeholder frame bypass the rule and flash 100 % again. The rule is now
+  absolute: a live reading never has `used = 0` (even a bare session keeps the
+  system prompt in context), so remaining 100 is always the streaming
+  placeholder — it is never rendered. An existing value is held through it
+  regardless of state age; before a session's first real frame the segment
+  stays hidden instead of inventing 100 %; a `shown=100` state left by earlier
+  releases is treated as residue, not held.
+
 ## 1.0.0 — 2026-09-16
 
 First stable release. The line does what it says — real-time 5h/7d Z.AI plan

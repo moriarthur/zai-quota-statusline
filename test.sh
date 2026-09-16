@@ -378,19 +378,22 @@ fi
 
 # ---- statusline: context-left hysteresis over sequential frames ----
 # The CC statusline payload can carry a transient zero-sum usage object (used_
-# percentage:0 → "context left 100%"), so a rise of >=10 points displays only
-# after it repeats on two CONSECUTIVE identical frames; falls show at once.
-# Each scenario drives real sequential renders through one session's state file.
+# percentage:0 → remaining=100). A live reading never has used=0, so a literal
+# 100 is the placeholder and is never rendered at all: an existing shown value
+# is held (fresh or stale state), and before the first real frame the segment
+# stays hidden. Other rises of >=10 points display only after they repeat on
+# two CONSECUTIVE identical frames; falls show at once. Each scenario drives
+# real sequential renders through one session's state file.
 HY=$(mktemp -d)
 hys_seq() { # $@ = used_percentage per frame -> printed "context left N%" per line
   for u in "$@"; do
     v=$(printf '{"model":{"display_name":"X"},"session_id":"sb-hyst","context_window":{"used_percentage":%s}}' "$u" \
       | env -u ZAI_SB_CACHE ZAI_QUOTA_DIR="$HY" ZAI_SB_TEST_TICK=7 ZAI_SB_DEBUG="${ZAI_SB_DEBUG:-0}" \
         bash scripts/zai-statusline.sh 2>&1 \
-      | strip_ansi | sed -E 's/.*context left ([0-9]+)%.*/\1/')
+      | strip_ansi | sed -E 's/.*context left ([0-9]+)%.*/\1/; t; s/.*/-/')
     printf '%s\n' "$v"   # the statusline emits no trailing newline — add one
   done
-}
+}   # a frame with no context segment prints "-"
 res=$(hys_seq 11 0 12)
 if [ "$res" = $'89\n89\n88' ]; then
   ok "hysteresis: 89→100→88 shows 89→89→88 (phantom held, fall at once)"
@@ -434,17 +437,30 @@ else
 fi
 rm -f "$HY/.ctx-sb-hyst"
 res=$(hys_seq 0 0)
-if [ "$res" = $'100\n100' ]; then
-  ok "hysteresis: fresh 100 shows at once (no prior context to hold from)"
+if [ "$res" = $'-\n-' ] && [ ! -f "$HY/.ctx-sb-hyst" ]; then
+  ok "hysteresis: fresh 100 is the session-start placeholder — hidden, no state seeded"
 else
-  bad "hysteresis: fresh 100 shows at once (no prior context to hold from)"
+  bad "hysteresis: fresh 100 is the session-start placeholder — hidden, no state seeded"
+fi
+res=$(hys_seq 11 0)
+if [ "$res" = $'89\n89' ] && [ -f "$HY/.ctx-sb-hyst" ]; then
+  ok "hysteresis: first real frame shows and seeds state; the next placeholder holds it"
+else
+  bad "hysteresis: first real frame shows and seeds state; the next placeholder holds it"
 fi
 printf '89|0|0|%s\n' "$(( NOW - 400 ))" >"$HY/.ctx-sb-hyst"
 res=$(hys_seq 0)
-if [ "$res" = "100" ]; then
-  ok "hysteresis: state older than 300s is stale, jump accepted immediately"
+if [ "$res" = "89" ]; then
+  ok "hysteresis: stale state still holds through the placeholder (100 is never resurrected)"
 else
-  bad "hysteresis: state older than 300s is stale, jump accepted immediately"
+  bad "hysteresis: stale state still holds through the placeholder (100 is never resurrected)"
+fi
+printf '100|0|0|%s\n' "$NOW" >"$HY/.ctx-sb-hyst"
+res=$(hys_seq 0)
+if [ "$res" = "-" ] && [ "$(cat "$HY/.ctx-sb-hyst")" = "100|0|0|$NOW" ]; then
+  ok "hysteresis: shown=100 state is pre-fix residue — not held, not rewritten"
+else
+  bad "hysteresis: shown=100 state is pre-fix residue — not held, not rewritten"
 fi
 
 # ---- statusline: ZAI_SB_DEBUG logs incidents only ----

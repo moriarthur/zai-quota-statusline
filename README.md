@@ -50,7 +50,7 @@ Claude Code's own estimate).
 | `● model` | The chip. The dot's color is the current 5h severity; while a turn is live it breathes gray ↔ tier color |
 | `5h ▬ 60% 2h 14m` | 5-hour token window: usage bar, percent used, time until reset |
 | `7d ▬ 77% 4d 3h` | Weekly token window, same format |
-| `context left 38%` | Context window remaining; rises ≥ 10 points are held until confirmed (kills the phantom "100 %" flash) |
+| `context left 38%` | Context window remaining; the payload's placeholder "100 %" is never shown (held or hidden), other rises ≥ 10 points wait for a confirming second frame |
 | `$5.10` | Claude Code's client-side cost estimate for the session — **not** the Z.AI invoice |
 
 ## Requirements & compatibility
@@ -214,12 +214,15 @@ The context-left number is filtered too. Claude Code's payload computes
 `remaining_percentage` as `100 − used_percentage` in one expression — the statusline
 reads `used_percentage` alone — but the payload builder has no zero-usage guard (the
 `/context` path does), so a streaming placeholder arrives as `used_percentage: 0` and
-would flash "context left 100%". The placeholder can persist for whole seconds, so two
-defenses stack: a rise of ≥10 points is held until it repeats on two consecutive
-identical frames, and a literal 100 is never shown over an already-displayed value at
-all — `used = 0` is exactly what the placeholder looks like. State is per session,
-older than 300 s ignored; falls and smaller rises show immediately; a genuine `/clear`
-updates the figure on the first real (used > 0) frame after it.
+would flash "context left 100%". The placeholder can persist for whole seconds, so the
+first defense is absolute: a literal 100 is never rendered at all — a live reading
+always has context in use (even a bare session keeps the system prompt), so `used = 0`
+is exactly what the placeholder looks like. An already-displayed value is held through
+the placeholder (whatever the state's age — the placeholder strikes mid-turn, when the
+state looks oldest), and before the first real frame of a session the segment simply
+stays hidden. Second defense: any other rise of ≥10 points is held until it repeats on
+two consecutive identical frames. Falls and smaller rises show immediately; a genuine
+`/clear` updates the figure on the first real (used > 0) frame after it.
 
 The dollar figure is `cost.total_cost_usd` — Claude Code's own client-side list-price
 estimate for the session (reset by `/clear`), **not** the Z.AI invoice. A value that is
@@ -300,7 +303,7 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 | `ZAI_HOOK_FETCH_TIMEOUT` | `15` | Hard timeout (s) for a single fetch |
 | `ZAI_REFRESH_MIN` | `600` | Min age (s) of the cache before a plain (non-forced) fetch re-requests |
 | `ZAI_ROLL_MIN` | `60` | Throttle (s) for the statusline's background forced refreshes — window rollover and missing-cache self-heal (shared stamp) |
-| `ZAI_SB_CTX_JUMP` | `10` | Min rise (points) in context-left treated as a jump — held until it repeats on 2 identical frames. A literal 100 (used 0 placeholder) is never accepted over an existing value at all |
+| `ZAI_SB_CTX_JUMP` | `10` | Min rise (points) in context-left treated as a jump — held until it repeats on 2 identical frames. A literal 100 (used 0 placeholder) is never rendered at all: an existing value is held, an absent one stays hidden |
 | `ZAI_SB_DEBUG` | `0` | `1` = log incidents (held jumps, displayed changes) to `statusline-debug.log` — diagnostics only |
 | `ZAI_FETCH_CURL_TIMEOUT` | `20` | Hard curl timeout (s) for a single request |
 | `ZAI_SB_SEGMENTS` | `10` | Bar length in cells |
