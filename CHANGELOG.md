@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.21 — 2026-09-16
+The breath quickens to the host's render floor: the dot toggles every beat —
+the dim gray for one second, the tier color for the next, a full cycle every
+two seconds. The old four-second rhythm held the color twice as long as it
+dimmed; now each tone gets exactly one beat, the fastest flicker
+`refreshInterval` can draw.
+
 ## 0.1.20 — 2026-09-16
 The breath settles on two tones: the hueless dim gray (`38;5;240`) and the tier
 color — gray, mid, mid, gray, two seconds each. The bright ladder step from the

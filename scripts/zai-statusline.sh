@@ -340,8 +340,9 @@ fi
 
 # ---- turn breath + model chip ----
 # While a turn is live the dot breathes between two tones — the dim gray
-# "off" end and the tier color — gray, mid, mid, gray, two seconds each at
-# the host's render floor (statusLine.refreshInterval, min 1 s); faster
+# "off" end and the tier color — one second a tone, toggling every beat of
+# the host's render floor (statusLine.refreshInterval, min 1 s): a full
+# cycle every 2 s, the fastest flicker the host can draw. Faster
 # event-driven re-renders within the same second land on the same tone.
 # Idle: the tier color, static. The chip is plain everywhere: "● model", the
 # dot carrying the color.
@@ -349,9 +350,9 @@ glc=$(col "$h5p")
 if [ "$busy" = 1 ]; then
   tick=${ZAI_SB_TEST_TICK:-$now}   # test seam: freeze the clock (whole seconds)
   ramp "$glc"
-  case $(( tick % 4 )) in
-    1 | 2) glc="38;5;$R_LO" ;;   # mid, hold
-    *)     glc="38;5;$R_DIM" ;;  # gray, hold
+  case $(( tick % 2 )) in
+    1) glc="38;5;$R_LO" ;;   # the tier tone, one beat
+    *) glc="38;5;$R_DIM" ;;  # the gray "off" end, one beat
   esac
 fi
 chip=$(printf '\033[%sm%s\033[0m %s' "$glc" "$DOT" "$model")

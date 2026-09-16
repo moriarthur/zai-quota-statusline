@@ -293,9 +293,10 @@ fi
 rm -rf "$FIX5" "$FIX6"
 
 # ---- statusline: the dot breathes between the dim gray and the tier tone ----
-# Two tones: the hueless gray "off" end (240) and the tier color — gray, mid,
-# mid, gray, two seconds per tone (the host render floor: refreshInterval min
-# 1 s), no SGR faint (an attribute render paths drop). Checks read RAW output
+# Two tones: the hueless gray "off" end (240) and the tier color — gray, tone,
+# gray, tone, one second a tone, toggling every beat (the host render floor:
+# refreshInterval min 1 s), no SGR faint (an attribute render paths drop).
+# Checks read RAW output
 # (the suite's ANSI-stripper would erase the very thing under test); 21% usage
 # = green tier = mid 65 — which the quota bar carries on every frame, so the
 # breath phases are distinguished by the 240 code the breath alone emits.
@@ -318,16 +319,16 @@ else
   bad "statusline: breath phase 1 is the mid tier tone"
 fi
 raw=$(sb_tick 2)
-if [[ "$raw" == *"$low"* && "$raw" != *"$dim"* && "$raw" != *"$oldpeak"* && "$raw" != *"$faint"* ]]; then
-  ok "statusline: breath phase 2 holds the mid tone (old bright step and SGR faint gone)"
+if [[ "$raw" == *"$dim"* && "$raw" != *"$oldpeak"* && "$raw" != *"$faint"* ]]; then
+  ok "statusline: breath phase 2 is the dim gray again (old bright step and SGR faint gone)"
 else
-  bad "statusline: breath phase 2 holds the mid tone (old bright step and SGR faint gone)"
+  bad "statusline: breath phase 2 is the dim gray again (old bright step and SGR faint gone)"
 fi
 raw=$(sb_tick 3)
-if [[ "$raw" == *"$dim"* ]]; then
-  ok "statusline: breath phase 3 is the dim gray again"
+if [[ "$raw" == *"$low"* && "$raw" != *"$dim"* ]]; then
+  ok "statusline: breath phase 3 is the mid tier tone"
 else
-  bad "statusline: breath phase 3 is the dim gray again"
+  bad "statusline: breath phase 3 is the mid tier tone"
 fi
 rm -f "$FIXD/.turn"   # idle case: the breath tests above left their flag behind
 raw=$(sb_tick 0)

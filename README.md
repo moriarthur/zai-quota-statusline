@@ -123,9 +123,10 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
 
    `refreshInterval` (seconds) re-runs the statusline command on a steady beat — this is
    the documented Claude Code setting for periodic statusline updates, minimum 1 s. It is
-   what lets the dot breathe (while a turn is live it steps between a dim gray and the
-   tier color — two seconds each — one step per second at this render
-   floor) and what repaints the line when the startup cache lands a moment after the
+   what lets the dot breathe (while a turn is live it flickers between a dim gray and
+   the tier color — one second each, a full cycle every two seconds — one toggle per
+   beat at this render floor, the fastest the host can draw) and what repaints the
+   line when the startup cache lands a moment after the
    first render (see step 3). Quota **fetching** stays event-driven — the timer only
    re-renders the line from the cache, it never calls the API. Without it the line only
    re-renders on conversation events: a `quota n/a` drawn before the cache exists would
