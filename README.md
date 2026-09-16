@@ -31,6 +31,14 @@ render floor allows. Idle, the dot rests on the tier color.</i></p>
 - **A model chip whose dot breathes while a turn is live** — like the native spinner
 - Works on **macOS, Linux and WSL2**; no `jq` required; no Nerd Font required
 
+**What it does not do:** it is not an official Z.AI or Anthropic product; it does not
+switch models, manage your plan, or show the Z.AI billing invoice (the cost segment is
+Claude Code's own estimate).
+
+> **Before you install:** the plugin needs a Z.AI Coding Plan token and reads Z.AI's
+> internal quota endpoint — not part of the documented Anthropic-compatible API. That
+> endpoint can change without notice; everything else the plugin does is local.
+
 ## The line, piece by piece
 
 ```
@@ -50,7 +58,7 @@ render floor allows. Idle, the dot rests on the tier color.</i></p>
 | | |
 |---|---|
 | **Platforms** | macOS, Linux, WSL2 (developed and tested on WSL2 + macOS). Native Windows is untested — use WSL |
-| **Runtime** | `bash` 3.2+ (stock macOS bash works — no bash-4 features), `curl` |
+| **Runtime** | `bash` 3.2+ (stock macOS bash works — no bash-4 features), `curl` 7.55+ (2017; any current distro — the token rides in a stdin-fed header, invisible to `ps`) |
 | **JSON parser** | `jq` if present; otherwise the bundled `jqsh` fallback runs on `python3` (macOS: shipped with the Command Line Tools). Either one is enough |
 | **Claude Code** | Any version with plugin-marketplace support and `statusLine.refreshInterval` (verified against 2.1.x) |
 | **Terminals** | Any terminal Claude Code runs its UI in — Terminal.app, iTerm2, Windows Terminal, kitty, Alacritty, tmux, SSH, IDE-embedded terminals. Colors are explicit xterm-256 cube codes, so 256-color and truecolor render paths draw them identically (see the design note below) |
@@ -78,6 +86,13 @@ claude plugin install zai-quota-statusline@moriarthur
 ```
 /plugin marketplace add moriarthur/zai-quota-statusline
 /plugin install zai-quota-statusline@moriarthur
+```
+
+In short: **install → credentials → `statusLine` block → restart.** When it works, the
+line under your prompt reads:
+
+```
+● GLM-5.3-Flash | 5h ━━────── 36% 3h 12m · 7d ━━━━━───── 57% 3d 8h · context left 43% · $5.17
 ```
 
 **Step 1 — credentials.** Point a credentials file at your Z.AI token:
@@ -210,6 +225,14 @@ not a number, or a negative one, hides the cost segment instead of posing as `$0
 
 ## Troubleshooting
 
+| Symptom | First check |
+|---|---|
+| No status line at all | The `statusLine` block is missing from `settings.json` — plugins can't set it (Install, step 2) |
+| `quota n/a` right after launch | `refreshInterval: 1` missing — the line isn't redrawn (step 1 below) |
+| `quota n/a` never goes away | `hook.log` (step 2), then credentials (step 4) |
+| Bars frozen on old numbers / `… 0m` | The rollover self-heal is throttled to `ZAI_ROLL_MIN` — one render is enough, a minute at the default (step 3) |
+| A working line froze one day | The internal Z.AI endpoint may have changed — `hook.log`, then the issue tracker |
+
 **Known limitation, up front:** the quota endpoint is an internal, undocumented Z.AI
 API (see [How it works](#how-it-works)) — the one external dependency of this plugin.
 If a previously working line one day freezes on `quota n/a` or stale numbers, an
@@ -288,6 +311,7 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 | File | Role |
 |---|---|
 | `hooks/hooks.json` | Plugin hook registration (fast start-time sync, mid-session update re-sync, background first fetch, event-driven refresh) |
+| `CHANGELOG.md` | Release history |
 | `commands/refresh.md` | `/zai-quota-statusline:refresh` — force one fetch from the CLI |
 | `scripts/sync.sh` | Session-start installer: atomically syncs the scripts into the stable path |
 | `scripts/ensure-current.sh` | Parity check on prompt submit / turn end: re-syncs the stable path when a plugin update landed mid-session (report-only on orphan files, never deletes) |
@@ -319,6 +343,11 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 - The fetch output never echoes the token; error bodies from the API are truncated.
 - Tests (`./test.sh`) strip `ANTHROPIC_*` from the environment and use dummy tokens, so
   CI logs can never capture real credentials.
+
+No software can protect against a compromised machine, malicious local processes, a
+compromised shell environment, or a deliberately configured malicious endpoint. Never
+commit `config.env`, paste your token into an issue, or include it in debug output —
+report security issues privately via [SECURITY.md](SECURITY.md).
 
 ## License
 

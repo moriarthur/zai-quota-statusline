@@ -91,9 +91,14 @@ mkdir -p "$DIR"
 tmp=$(mktemp "$DIR/.fetch.XXXXXX")   # unique per process: parallel fetches never collide
 out=$(mktemp "$DIR/.fetch.XXXXXX")   # same directory as the cache: rename is atomic
 trap 'rm -f "$tmp" "$out"' EXIT
-http=$(curl -sS -o "$tmp" -w '%{http_code}' \
+# The token rides in a header read from stdin (-H @-), never as a curl ARGUMENT:
+# an argv header is readable in the process list (ps) for the life of the request.
+# -q must come first — it ignores the user's ~/.curlrc, so a tampered rc file
+# cannot add proxy/trace settings to this request. curl >= 7.55 for -H @-.
+http=$(printf 'Authorization: %s\n' "$ANTHROPIC_AUTH_TOKEN" | \
+  curl -q -sS -o "$tmp" -w '%{http_code}' \
   --max-time "${ZAI_FETCH_CURL_TIMEOUT:-20}" \
-  -H "Authorization: ${ANTHROPIC_AUTH_TOKEN}" \
+  -H @- \
   -H "Accept-Language: en-US,en" \
   -H "Content-Type: application/json" \
   "$url") || { echo "ERROR: request failed" >&2; exit 1; }

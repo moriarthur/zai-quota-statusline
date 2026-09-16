@@ -855,6 +855,17 @@ rm -rf "$TH" "$NOPATH"
 
 # ---- security: the token never travels further than the configured host ----
 # env -u strips real credentials so the tests never touch the live API
+# wiring guard: the token must ride in a stdin-fed curl header (-H @-), never as
+# a curl argument — an argv value is readable in the process list (ps) for the
+# life of the request. grep -F: the pattern is shell-literal, not a regex.
+# the grep pattern is intentionally a literal (SC2016) — that's the source text being guarded
+# shellcheck disable=SC2016
+if grep -qF -- '-H @-' scripts/quota-fetch.sh \
+   && ! grep -qF 'Authorization: ${ANTHROPIC_AUTH_TOKEN}' scripts/quota-fetch.sh; then
+  ok "security: token fed to curl via stdin, not argv (invisible to ps)"
+else
+  bad "security: token fed to curl via stdin, not argv (invisible to ps)"
+fi
 TH=$(mktemp -d)
 mkdir -p "$TH/.claude/zaiquota"
 printf 'ANTHROPIC_BASE_URL=https://127.0.0.1:1/api/anthropic\nANTHROPIC_AUTH_TOKEN=DUMMY_TOKEN_VALUE\n' > "$TH/.claude/zaiquota/config.env"

@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-16 20:01:50 UTC",
+  "run_id": "zai-quota-statusline_cf53",
+  "run_name": "zai-quota-statusline_cf53",
+  "scope": {
+    "targets": [
+      {
+        "type": "local_code",
+        "details": {
+          "target_path": "/home/unlxud/Projects/zai-quota-statusline",
+          "workspace_subdir": "zai-quota-statusline"
+        },
+        "original": "/home/unlxud/Projects/zai-quota-statusline"
+      }
+    ],
+    "scan_mode": "quick",
+    "scope_mode": "auto",
+    "diff_scope": {
+      "active": false,
+      "mode": "auto"
+    },
+    "instruction": ""
+  },
+  "summary": {
+    "surfaces_reviewed": 8,
+    "outcomes": {
+      "no_issue_found": 1,
+      "not_applicable": 2,
+      "needs_follow_up": 5
+    },
+    "findings_filed": 0,
+    "gaps": 5
+  },
+  "machine_observed": {
+    "agents": [
+      {
+        "agent_id": "7042b2af",
+        "agent_name": "Recon Mapper",
+        "status": "completed",
+        "skills": [
+          "source_aware_sast",
+          "semgrep"
+        ],
+        "task": "White-box reconnaissance + full code mapping of the repository at /workspace/zai-quota-statusline (a Claude Code plugin: shell scripts + one Python mini-jq parser). Call get_threat_model on target /home/unlxud/Projects/zai-quota-statusline FIRST and build on it.\n\nDeliverables (write a wiki note via create_note titled \"Recon: code map\" so all agents can use it):\n1. Complete data-flow map for each script in scripts/: zai-statusline.sh, quota-fetch.sh, quota-hook.sh, sync.sh, ensure-current.sh, jqsh. For each: entrypoint, every read of untrusted input (stdin JSON, env vars, API HTTP responses, cache files under ~/.claude/zaiquota), every sink (eval, command substitution into shell, unquoted expansion, file write, printf/echo to terminal, network call, curl args, temp files). Quote exact file:line for each untrusted-source and sink.\n2. Confirm the inferred trust boundaries B2/B3 from the threat model: which URL(s) does quota-fetch.sh hit, how is the API key passed/stored, does ensure-current.sh/sync.sh download or execute anything remote (update mechanism)? Exact lines.\n3. Attack-surface enumeration: every env var read, every file path read/written, every subprocess invoked, jqsh CLI flags actually exercised by callers.\n4. Run the static triage bundle from /workspace/zai-quota-statusline and store artifacts under /workspace/.source-aware/ (mkdir first): semgrep scan --config p/default --config p/golang --config p/secrets --metrics=off --json --output /workspace/.source-aware/semgrep.json . ; then build sg-targets.txt per the source_aware_sast skill and run the xargs sg pass; gitleaks detect --source . --report-format json --report-path /workspace/.source-aware/gitleaks.json; trufflehog filesystem --no-update --json --no-verification . > /workspace/.source-aware/trufflehog.json; trivy fs --scanners vuln,misconfig --timeout 30m --offline-scan --format json --output /workspace/.source-aware/trivy-fs.json . Keep outputs bounded and summarize the signal (deduped high-signal rule hits, any secrets found — note gitleaks/trufflehog results in the note), do not paste whole JSONs into the note.\n5. A prioritized candidate list (top ~10) of specific untrusted-input → sink paths most worth validation, each with file:line, the trust boundary it crosses, and why it's plausible. Mark each candidate clearly as hypothesis — do NOT report anything, do NOT build exploits, this is mapping only.\n\nRecord coverage entries (record_coverage) for the mapping work you did per script with outcome needs_follow_up for candidates you flag (surface = script name + path, risk_area = the candidate class). Then agent_finish with a concise summary and open_items listing your top candidates.",
+        "is_root": false
+      },
+      {
+        "agent_id": "6a4595de",
+        "agent_name": "Root Agent",
+        "status": "running",
+        "skills": [],
+        "task": "\n\nLocal Codebases: - /home/unlxud/Projects/zai-quota-statusline (available at: /workspace/zai-quota-statusline; this is the user's real directory, mounted live and writable — .git/.agents/.codex are read-only)",
+        "is_root": true
+      }
+    ],
+    "skills_exercised": [
+      "semgrep",
+      "source_aware_sast"
+    ],
+    "findings_filed": 0,
+    "source": "runtime"
+  },
+  "completeness": {
+    "complete": false,
+    "scan_status": "running",
+    "exit_reason": null,
+    "caveats": [
+      "The scan ended with status 'running' rather than completing, so coverage reflects only the work finished before it stopped.",
+      "1 agent(s) did not finish cleanly (Root Agent); any surface they held is under-covered."
+    ]
+  },
+  "entries": [
+    {
+      "surface": "scripts/zai-statusline.sh — statusline stdin JSON → terminal render path",
+      "risk_area": "Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output)",
+      "outcome": "needs_follow_up",
+      "outcome_label": "Requires further review",
+      "evidence": "Full data flow mapped (sources :14,:75,:205,:317,:332; sinks :361-364,:243-253,:304-308; sanitizer :86-89; arithmetic sinks all num()-guarded and bash $(( ))/test do not command-substitute — verified empirically). Open hypotheses H1/H2/H5 (sed flavor divergence on BSD/macOS, C1-byte handling, OSC vs CSI) need dynamic validation before any conclusion.",
+      "recorded_by": "Recon Mapper",
+      "recorded_at": "2026-09-16 20:01:04 UTC",
+      "updated_at": "",
+      "previous_outcomes": [],
+      "source": "agent_reported"
+    },
+    {
+      "surface": "scripts/zai-statusline.sh + scripts/quota-fetch.sh — cache/state file numeric fields → shell arithmetic",
+      "risk_area": "B4 cache/state tampering → bash arithmetic errors / statusline logic skew",
+      "outcome": "needs_follow_up",
+      "outcome_label": "Requires further review",
+      "evidence": "All numeric consumers traced: statusline :122/:164/:179-181/:209/:272 and fetch :64-66. num() whitelist is present on the statusline side; fetch's `|| echo 0` (:64) does not catch numeric-junk jq output from a tampered cache (H3); hook .hook-state/.turn timestamps guarded only partially (H6). No exec possible (bash arithmetic verified non-expanding) — open question is DoS/logic-skew only.",
+      "recorded_by": "Recon Mapper",
+      "recorded_at": "2026-09-16 20:01:04 UTC",
+      "updated_at": "",
+      "previous_outcomes": [],
+      "source": "agent_reported"
+    },
+    {
+      "surface": "scripts/quota-fetch.sh — Z.AI API fetch pipeline",
+      "risk_area": "B2 response handling + credential handling (cache poisoning, header injection, token leakage)",
+      "outcome": "needs_follow_up",
+      "outcome_label": "Requires further review",
+      "evidence": "URL construction confirmed (fetch:82-88, https-enforced :83-87, default host api.z.ai from README:88); token passed as raw Authorization header :96, stored env-first/config.env-second (:56-57, :38-48 grep-parse, chmod 600 :54). Open hypotheses: H7 (jqsh exception paths on hostile body), H9 (newline-bearing token → curl header split), H2 (raw body `head -c 2000` :103,:112 into hook.log tail rendering).",
+      "recorded_by": "Recon Mapper",
+      "recorded_at": "2026-09-16 20:01:04 UTC",
+      "updated_at": "",
+      "previous_outcomes": [],
+      "source": "agent_reported"
+    },
+    {
+      "surface": "scripts/quota-hook.sh — hook stdin session_id path use + B4 sweep",
+      "risk_area": "B1 session_id → filesystem path shaping (.turn-<sid>)",
+      "outcome": "needs_follow_up",
+      "outcome_label": "Requires further review",
+      "evidence": "session_id whitelist `[!A-Za-z0-9_-]*` at hook:53 / statusline:206 gates all `.turn[-sid]` path construction (:54-56, statusline:207). Looks correct; H4 asks a validator to probe jqsh/jq -r raw-output edges (number/string output forms) for whitelist bypass before ruling out.",
+      "recorded_by": "Recon Mapper",
+      "recorded_at": "2026-09-16 20:01:04 UTC",
+      "updated_at": "",
+      "previous_outcomes": [],
+      "source": "agent_reported"
+    },
+    {
+      "surface": "scripts/jqsh — Python mini-jq parser/evaluator",
+      "risk_area": "Code execution via filter/data parsing; recursion, surrogates, unbounded resource use",
+      "outcome": "needs_follow_up",
+      "outcome_label": "Requires further review",
+      "evidence": "AST pass (ast-python-map.txt) shows zero eval/exec/compile/system/import sinks; only sink is open(files[0]) :616 and re.compile of fixed patterns :31. Tree-walking interpreter with fixed grammar; data-only untrusted input. Open: H7 resource/exception paths (parser RecursionError uncaught, lone-surrogate UnicodeEncodeError in emit, cartesian-product blowups on hostile data).",
+      "recorded_by": "Recon Mapper",
+      "recorded_at": "2026-09-16 20:01:04 UTC",
+      "updated_at": "",
+      "previous_outcomes": [],
+      "source": "agent_reported"
+    },
+    {
+      "surface": "scripts/sync.sh + scripts/ensure-current.sh — script install/update mechanism",
+      "risk_area": "B3 remote update execution / integrity of installed scripts",
+      "outcome": "not_applicable",
+      "outcome_label": "Not applicable",
+      "evidence": "Not applicable: sync.sh:16-22 and ensure-current.sh:29-38 perform no network I/O and no remote version checks — they only copy/compare files already inside the plugin checkout; runtime update path is the Claude marketplace itself (outside repo). CI-level residual: semgrep flagged mutable action tags (ci.yml:12, release.yml:14,37) and missing dependabot cooldown (dependabot.yml:3).",
+      "recorded_by": "Recon Mapper",
+      "recorded_at": "2026-09-16 20:01:04 UTC",
+      "updated_at": "",
+      "previous_outcomes": [],
+      "source": "agent_reported"
+    },
+    {
+      "surface": "Repository (working tree + git history) — secrets",
+      "risk_area": "Hardcoded secrets / committed credentials",
+      "outcome": "no_issue_found",
+      "outcome_label": "No issue identified",
+      "evidence": "gitleaks (38 commits, ~200 KB) and trufflehog both clean — /workspace/.source-aware/gitleaks.json and trufflehog.json empty; no keys/tokens in config.env examples (README uses placeholder).",
+      "recorded_by": "Recon Mapper",
+      "recorded_at": "2026-09-16 20:01:04 UTC",
+      "updated_at": "",
+      "previous_outcomes": [],
+      "source": "agent_reported"
+    },
+    {
+      "surface": "Repository manifests/lockfiles — dependency CVEs",
+      "risk_area": "Known-CVE dependency findings (SCA)",
+      "outcome": "not_applicable",
+      "outcome_label": "Not applicable",
+      "evidence": "Trivy fs (vuln,misconfig) returned no results — repo contains no lockfiles/manifests (shell+python scripts only, no requirements.txt/package.json). 4 semgrep hits are CI-hygiene only, no runtime dependency surface.",
+      "recorded_by": "Recon Mapper",
+      "recorded_at": "2026-09-16 20:01:04 UTC",
+      "updated_at": "",
+      "previous_outcomes": [],
+      "source": "agent_reported"
+    }
+  ],
+  "gaps": [
+    {
+      "kind": "needs_follow_up",
+      "surface": "scripts/zai-statusline.sh — statusline stdin JSON → terminal render path",
+      "risk_area": "Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output)",
+      "detail": "Full data flow mapped (sources :14,:75,:205,:317,:332; sinks :361-364,:243-253,:304-308; sanitizer :86-89; arithmetic sinks all num()-guarded and bash $(( ))/test do not command-substitute — verified empirically). Open hypotheses H1/H2/H5 (sed flavor divergence on BSD/macOS, C1-byte handling, OSC vs CSI) need dynamic validation before any conclusion."
+    },
+    {
+      "kind": "needs_follow_up",
+      "surface": "scripts/zai-statusline.sh + scripts/quota-fetch.sh — cache/state file numeric fields → shell arithmetic",
+      "risk_area": "B4 cache/state tampering → bash arithmetic errors / statusline logic skew",
+      "detail": "All numeric consumers traced: statusline :122/:164/:179-181/:209/:272 and fetch :64-66. num() whitelist is present on the statusline side; fetch's `|| echo 0` (:64) does not catch numeric-junk jq output from a tampered cache (H3); hook .hook-state/.turn timestamps guarded only partially (H6). No exec possible (bash arithmetic verified non-expanding) — open question is DoS/logic-skew only."
+    },
+    {
+      "kind": "needs_follow_up",
+      "surface": "scripts/quota-fetch.sh — Z.AI API fetch pipeline",
+      "risk_area": "B2 response handling + credential handling (cache poisoning, header injection, token leakage)",
+      "detail": "URL construction confirmed (fetch:82-88, https-enforced :83-87, default host api.z.ai from README:88); token passed as raw Authorization header :96, stored env-first/config.env-second (:56-57, :38-48 grep-parse, chmod 600 :54). Open hypotheses: H7 (jqsh exception paths on hostile body), H9 (newline-bearing token → curl header split), H2 (raw body `head -c 2000` :103,:112 into hook.log tail rendering)."
+    },
+    {
+      "kind": "needs_follow_up",
+      "surface": "scripts/quota-hook.sh — hook stdin session_id path use + B4 sweep",
+      "risk_area": "B1 session_id → filesystem path shaping (.turn-<sid>)",
+      "detail": "session_id whitelist `[!A-Za-z0-9_-]*` at hook:53 / statusline:206 gates all `.turn[-sid]` path construction (:54-56, statusline:207). Looks correct; H4 asks a validator to probe jqsh/jq -r raw-output edges (number/string output forms) for whitelist bypass before ruling out."
+    },
+    {
+      "kind": "needs_follow_up",
+      "surface": "scripts/jqsh — Python mini-jq parser/evaluator",
+      "risk_area": "Code execution via filter/data parsing; recursion, surrogates, unbounded resource use",
+      "detail": "AST pass (ast-python-map.txt) shows zero eval/exec/compile/system/import sinks; only sink is open(files[0]) :616 and re.compile of fixed patterns :31. Tree-walking interpreter with fixed grammar; data-only untrusted input. Open: H7 resource/exception paths (parser RecursionError uncaught, lone-surrogate UnicodeEncodeError in emit, cartesian-product blowups on hostile data)."
+    }
+  ]
+}

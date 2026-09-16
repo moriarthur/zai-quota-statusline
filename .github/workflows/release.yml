@@ -11,7 +11,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install pinned shellcheck (match local dev version)
         run: |
@@ -34,14 +34,15 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Tag version must match plugin.json
+      - name: Tag version must match plugin.json and marketplace.json
         run: |
           V="${GITHUB_REF_NAME#v}"
           J=$(jq -r .version .claude-plugin/plugin.json)
-          if [ "$V" != "$J" ]; then
-            echo "tag $GITHUB_REF_NAME does not match plugin.json version $J" >&2
+          M=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)
+          if [ "$V" != "$J" ] || [ "$V" != "$M" ]; then
+            echo "tag $GITHUB_REF_NAME does not match plugin.json version $J / marketplace.json version $M" >&2
             exit 1
           fi
 
@@ -51,5 +52,8 @@ jobs:
         run: |
           V="${GITHUB_REF_NAME#v}"
           NOTES=$(awk -v pat="^## $V" '$0 ~ pat {f=1; next} /^## /{f=0} f' CHANGELOG.md)
-          [ -n "$NOTES" ] || NOTES="See CHANGELOG.md for details."
+          if [ -z "$NOTES" ]; then
+            echo "CHANGELOG.md has no '## $V' section — add release notes before tagging" >&2
+            exit 1
+          fi
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$NOTES"

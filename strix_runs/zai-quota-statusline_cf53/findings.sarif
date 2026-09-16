@@ -1,0 +1,430 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Strix",
+          "informationUri": "https://strix.ai",
+          "rules": [
+            {
+              "id": "strix-coverage/terminal-escape-control-char-injection-from-b1-stdin-model-chip-cost-debug-log-output",
+              "name": "Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output)",
+              "shortDescription": {
+                "text": "Coverage: Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output)"
+              },
+              "fullDescription": {
+                "text": "Coverage of Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output) across the assessed attack surface."
+              },
+              "defaultConfiguration": {
+                "level": "none"
+              },
+              "help": {
+                "text": "Coverage of Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output) across the assessed attack surface.",
+                "markdown": "Coverage of Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output) across the assessed attack surface."
+              },
+              "properties": {
+                "tags": [
+                  "coverage"
+                ]
+              }
+            },
+            {
+              "id": "strix-coverage/b4-cache-state-tampering-bash-arithmetic-errors-statusline-logic-skew",
+              "name": "B4 cache/state tampering → bash arithmetic errors / statusline logic skew",
+              "shortDescription": {
+                "text": "Coverage: B4 cache/state tampering → bash arithmetic errors / statusline logic skew"
+              },
+              "fullDescription": {
+                "text": "Coverage of B4 cache/state tampering → bash arithmetic errors / statusline logic skew across the assessed attack surface."
+              },
+              "defaultConfiguration": {
+                "level": "none"
+              },
+              "help": {
+                "text": "Coverage of B4 cache/state tampering → bash arithmetic errors / statusline logic skew across the assessed attack surface.",
+                "markdown": "Coverage of B4 cache/state tampering → bash arithmetic errors / statusline logic skew across the assessed attack surface."
+              },
+              "properties": {
+                "tags": [
+                  "coverage"
+                ]
+              }
+            },
+            {
+              "id": "strix-coverage/b2-response-handling-credential-handling-cache-poisoning-header-injection-token-leakage",
+              "name": "B2 response handling + credential handling (cache poisoning, header injection, token leakage)",
+              "shortDescription": {
+                "text": "Coverage: B2 response handling + credential handling (cache poisoning, header injection, token leakage)"
+              },
+              "fullDescription": {
+                "text": "Coverage of B2 response handling + credential handling (cache poisoning, header injection, token leakage) across the assessed attack surface."
+              },
+              "defaultConfiguration": {
+                "level": "none"
+              },
+              "help": {
+                "text": "Coverage of B2 response handling + credential handling (cache poisoning, header injection, token leakage) across the assessed attack surface.",
+                "markdown": "Coverage of B2 response handling + credential handling (cache poisoning, header injection, token leakage) across the assessed attack surface."
+              },
+              "properties": {
+                "tags": [
+                  "coverage"
+                ]
+              }
+            },
+            {
+              "id": "strix-coverage/b1-session-id-filesystem-path-shaping-turn-sid",
+              "name": "B1 session_id → filesystem path shaping (.turn-<sid>)",
+              "shortDescription": {
+                "text": "Coverage: B1 session_id → filesystem path shaping (.turn-<sid>)"
+              },
+              "fullDescription": {
+                "text": "Coverage of B1 session_id → filesystem path shaping (.turn-<sid>) across the assessed attack surface."
+              },
+              "defaultConfiguration": {
+                "level": "none"
+              },
+              "help": {
+                "text": "Coverage of B1 session_id → filesystem path shaping (.turn-<sid>) across the assessed attack surface.",
+                "markdown": "Coverage of B1 session_id → filesystem path shaping (.turn-<sid>) across the assessed attack surface."
+              },
+              "properties": {
+                "tags": [
+                  "coverage"
+                ]
+              }
+            },
+            {
+              "id": "strix-coverage/code-execution-via-filter-data-parsing-recursion-surrogates-unbounded-resource-use",
+              "name": "Code execution via filter/data parsing; recursion, surrogates, unbounded resource use",
+              "shortDescription": {
+                "text": "Coverage: Code execution via filter/data parsing; recursion, surrogates, unbounded resource use"
+              },
+              "fullDescription": {
+                "text": "Coverage of Code execution via filter/data parsing; recursion, surrogates, unbounded resource use across the assessed attack surface."
+              },
+              "defaultConfiguration": {
+                "level": "none"
+              },
+              "help": {
+                "text": "Coverage of Code execution via filter/data parsing; recursion, surrogates, unbounded resource use across the assessed attack surface.",
+                "markdown": "Coverage of Code execution via filter/data parsing; recursion, surrogates, unbounded resource use across the assessed attack surface."
+              },
+              "properties": {
+                "tags": [
+                  "coverage"
+                ]
+              }
+            },
+            {
+              "id": "strix-coverage/b3-remote-update-execution-integrity-of-installed-scripts",
+              "name": "B3 remote update execution / integrity of installed scripts",
+              "shortDescription": {
+                "text": "Coverage: B3 remote update execution / integrity of installed scripts"
+              },
+              "fullDescription": {
+                "text": "Coverage of B3 remote update execution / integrity of installed scripts across the assessed attack surface."
+              },
+              "defaultConfiguration": {
+                "level": "none"
+              },
+              "help": {
+                "text": "Coverage of B3 remote update execution / integrity of installed scripts across the assessed attack surface.",
+                "markdown": "Coverage of B3 remote update execution / integrity of installed scripts across the assessed attack surface."
+              },
+              "properties": {
+                "tags": [
+                  "coverage"
+                ]
+              }
+            },
+            {
+              "id": "strix-coverage/hardcoded-secrets-committed-credentials",
+              "name": "Hardcoded secrets / committed credentials",
+              "shortDescription": {
+                "text": "Coverage: Hardcoded secrets / committed credentials"
+              },
+              "fullDescription": {
+                "text": "Coverage of Hardcoded secrets / committed credentials across the assessed attack surface."
+              },
+              "defaultConfiguration": {
+                "level": "none"
+              },
+              "help": {
+                "text": "Coverage of Hardcoded secrets / committed credentials across the assessed attack surface.",
+                "markdown": "Coverage of Hardcoded secrets / committed credentials across the assessed attack surface."
+              },
+              "properties": {
+                "tags": [
+                  "coverage"
+                ]
+              }
+            },
+            {
+              "id": "strix-coverage/known-cve-dependency-findings-sca",
+              "name": "Known-CVE dependency findings (SCA)",
+              "shortDescription": {
+                "text": "Coverage: Known-CVE dependency findings (SCA)"
+              },
+              "fullDescription": {
+                "text": "Coverage of Known-CVE dependency findings (SCA) across the assessed attack surface."
+              },
+              "defaultConfiguration": {
+                "level": "none"
+              },
+              "help": {
+                "text": "Coverage of Known-CVE dependency findings (SCA) across the assessed attack surface.",
+                "markdown": "Coverage of Known-CVE dependency findings (SCA) across the assessed attack surface."
+              },
+              "properties": {
+                "tags": [
+                  "coverage"
+                ]
+              }
+            }
+          ],
+          "version": "1.6.2"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "strix-coverage/terminal-escape-control-char-injection-from-b1-stdin-model-chip-cost-debug-log-output",
+          "ruleIndex": 0,
+          "kind": "open",
+          "level": "none",
+          "message": {
+            "text": "Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output) — Requires further review: scripts/zai-statusline.sh — statusline stdin JSON → terminal render path\n\nFull data flow mapped (sources :14,:75,:205,:317,:332; sinks :361-364,:243-253,:304-308; sanitizer :86-89; arithmetic sinks all num()-guarded and bash $(( ))/test do not command-substitute — verified empirically). Open hypotheses H1/H2/H5 (sed flavor divergence on BSD/macOS, C1-byte handling, OSC vs CSI) need dynamic validation before any conclusion."
+          },
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "scripts/zai-statusline.sh — statusline stdin JSON → terminal render path"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "strix": {
+              "coverage_outcome": "needs_follow_up",
+              "risk_area": "Terminal escape/control-char injection from B1 stdin (model chip, cost, debug-log output)",
+              "surface": "scripts/zai-statusline.sh — statusline stdin JSON → terminal render path",
+              "recorded_by": "Recon Mapper",
+              "source": "agent_reported"
+            }
+          }
+        },
+        {
+          "ruleId": "strix-coverage/b4-cache-state-tampering-bash-arithmetic-errors-statusline-logic-skew",
+          "ruleIndex": 1,
+          "kind": "open",
+          "level": "none",
+          "message": {
+            "text": "B4 cache/state tampering → bash arithmetic errors / statusline logic skew — Requires further review: scripts/zai-statusline.sh + scripts/quota-fetch.sh — cache/state file numeric fields → shell arithmetic\n\nAll numeric consumers traced: statusline :122/:164/:179-181/:209/:272 and fetch :64-66. num() whitelist is present on the statusline side; fetch's `|| echo 0` (:64) does not catch numeric-junk jq output from a tampered cache (H3); hook .hook-state/.turn timestamps guarded only partially (H6). No exec possible (bash arithmetic verified non-expanding) — open question is DoS/logic-skew only."
+          },
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "scripts/zai-statusline.sh + scripts/quota-fetch.sh — cache/state file numeric fields → shell arithmetic"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "strix": {
+              "coverage_outcome": "needs_follow_up",
+              "risk_area": "B4 cache/state tampering → bash arithmetic errors / statusline logic skew",
+              "surface": "scripts/zai-statusline.sh + scripts/quota-fetch.sh — cache/state file numeric fields → shell arithmetic",
+              "recorded_by": "Recon Mapper",
+              "source": "agent_reported"
+            }
+          }
+        },
+        {
+          "ruleId": "strix-coverage/b2-response-handling-credential-handling-cache-poisoning-header-injection-token-leakage",
+          "ruleIndex": 2,
+          "kind": "open",
+          "level": "none",
+          "message": {
+            "text": "B2 response handling + credential handling (cache poisoning, header injection, token leakage) — Requires further review: scripts/quota-fetch.sh — Z.AI API fetch pipeline\n\nURL construction confirmed (fetch:82-88, https-enforced :83-87, default host api.z.ai from README:88); token passed as raw Authorization header :96, stored env-first/config.env-second (:56-57, :38-48 grep-parse, chmod 600 :54). Open hypotheses: H7 (jqsh exception paths on hostile body), H9 (newline-bearing token → curl header split), H2 (raw body `head -c 2000` :103,:112 into hook.log tail rendering)."
+          },
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "scripts/quota-fetch.sh — Z.AI API fetch pipeline"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "strix": {
+              "coverage_outcome": "needs_follow_up",
+              "risk_area": "B2 response handling + credential handling (cache poisoning, header injection, token leakage)",
+              "surface": "scripts/quota-fetch.sh — Z.AI API fetch pipeline",
+              "recorded_by": "Recon Mapper",
+              "source": "agent_reported"
+            }
+          }
+        },
+        {
+          "ruleId": "strix-coverage/b1-session-id-filesystem-path-shaping-turn-sid",
+          "ruleIndex": 3,
+          "kind": "open",
+          "level": "none",
+          "message": {
+            "text": "B1 session_id → filesystem path shaping (.turn-<sid>) — Requires further review: scripts/quota-hook.sh — hook stdin session_id path use + B4 sweep\n\nsession_id whitelist `[!A-Za-z0-9_-]*` at hook:53 / statusline:206 gates all `.turn[-sid]` path construction (:54-56, statusline:207). Looks correct; H4 asks a validator to probe jqsh/jq -r raw-output edges (number/string output forms) for whitelist bypass before ruling out."
+          },
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "scripts/quota-hook.sh — hook stdin session_id path use + B4 sweep"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "strix": {
+              "coverage_outcome": "needs_follow_up",
+              "risk_area": "B1 session_id → filesystem path shaping (.turn-<sid>)",
+              "surface": "scripts/quota-hook.sh — hook stdin session_id path use + B4 sweep",
+              "recorded_by": "Recon Mapper",
+              "source": "agent_reported"
+            }
+          }
+        },
+        {
+          "ruleId": "strix-coverage/code-execution-via-filter-data-parsing-recursion-surrogates-unbounded-resource-use",
+          "ruleIndex": 4,
+          "kind": "open",
+          "level": "none",
+          "message": {
+            "text": "Code execution via filter/data parsing; recursion, surrogates, unbounded resource use — Requires further review: scripts/jqsh — Python mini-jq parser/evaluator\n\nAST pass (ast-python-map.txt) shows zero eval/exec/compile/system/import sinks; only sink is open(files[0]) :616 and re.compile of fixed patterns :31. Tree-walking interpreter with fixed grammar; data-only untrusted input. Open: H7 resource/exception paths (parser RecursionError uncaught, lone-surrogate UnicodeEncodeError in emit, cartesian-product blowups on hostile data)."
+          },
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "scripts/jqsh — Python mini-jq parser/evaluator"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "strix": {
+              "coverage_outcome": "needs_follow_up",
+              "risk_area": "Code execution via filter/data parsing; recursion, surrogates, unbounded resource use",
+              "surface": "scripts/jqsh — Python mini-jq parser/evaluator",
+              "recorded_by": "Recon Mapper",
+              "source": "agent_reported"
+            }
+          }
+        },
+        {
+          "ruleId": "strix-coverage/b3-remote-update-execution-integrity-of-installed-scripts",
+          "ruleIndex": 5,
+          "kind": "notApplicable",
+          "level": "none",
+          "message": {
+            "text": "B3 remote update execution / integrity of installed scripts — Not applicable: scripts/sync.sh + scripts/ensure-current.sh — script install/update mechanism\n\nNot applicable: sync.sh:16-22 and ensure-current.sh:29-38 perform no network I/O and no remote version checks — they only copy/compare files already inside the plugin checkout; runtime update path is the Claude marketplace itself (outside repo). CI-level residual: semgrep flagged mutable action tags (ci.yml:12, release.yml:14,37) and missing dependabot cooldown (dependabot.yml:3)."
+          },
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "scripts/sync.sh + scripts/ensure-current.sh — script install/update mechanism"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "strix": {
+              "coverage_outcome": "not_applicable",
+              "risk_area": "B3 remote update execution / integrity of installed scripts",
+              "surface": "scripts/sync.sh + scripts/ensure-current.sh — script install/update mechanism",
+              "recorded_by": "Recon Mapper",
+              "source": "agent_reported"
+            }
+          }
+        },
+        {
+          "ruleId": "strix-coverage/hardcoded-secrets-committed-credentials",
+          "ruleIndex": 6,
+          "kind": "pass",
+          "level": "none",
+          "message": {
+            "text": "Hardcoded secrets / committed credentials — No issue identified: Repository (working tree + git history) — secrets\n\ngitleaks (38 commits, ~200 KB) and trufflehog both clean — /workspace/.source-aware/gitleaks.json and trufflehog.json empty; no keys/tokens in config.env examples (README uses placeholder)."
+          },
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "Repository (working tree + git history) — secrets"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "strix": {
+              "coverage_outcome": "no_issue_found",
+              "risk_area": "Hardcoded secrets / committed credentials",
+              "surface": "Repository (working tree + git history) — secrets",
+              "recorded_by": "Recon Mapper",
+              "source": "agent_reported"
+            }
+          }
+        },
+        {
+          "ruleId": "strix-coverage/known-cve-dependency-findings-sca",
+          "ruleIndex": 7,
+          "kind": "notApplicable",
+          "level": "none",
+          "message": {
+            "text": "Known-CVE dependency findings (SCA) — Not applicable: Repository manifests/lockfiles — dependency CVEs\n\nTrivy fs (vuln,misconfig) returned no results — repo contains no lockfiles/manifests (shell+python scripts only, no requirements.txt/package.json). 4 semgrep hits are CI-hygiene only, no runtime dependency surface."
+          },
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "Repository manifests/lockfiles — dependency CVEs"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "strix": {
+              "coverage_outcome": "not_applicable",
+              "risk_area": "Known-CVE dependency findings (SCA)",
+              "surface": "Repository manifests/lockfiles — dependency CVEs",
+              "recorded_by": "Recon Mapper",
+              "source": "agent_reported"
+            }
+          }
+        }
+      ],
+      "invocations": [
+        {
+          "executionSuccessful": false,
+          "toolExecutionNotifications": [
+            {
+              "level": "warning",
+              "message": {
+                "text": "The scan ended with status 'running' rather than completing, so coverage reflects only the work finished before it stopped."
+              }
+            },
+            {
+              "level": "warning",
+              "message": {
+                "text": "1 agent(s) did not finish cleanly (Root Agent); any surface they held is under-covered."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

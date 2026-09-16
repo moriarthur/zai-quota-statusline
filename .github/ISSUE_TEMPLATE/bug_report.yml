@@ -1,0 +1,55 @@
+name: Bug report
+description: Something renders wrong, freezes, or errors
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste your `ANTHROPIC_AUTH_TOKEN`, `config.env`, `quota.cache`, or
+        unredacted `hook.log` here** — redact secrets from any excerpt first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What does the status line show, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps from a fresh terminal.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux
+        - WSL2
+        - other / not sure
+    validations:
+      required: true
+  - type: input
+    id: cc-version
+    attributes:
+      label: Claude Code version
+      description: "`claude --version`"
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      description: "e.g. iTerm2, Terminal.app, Windows Terminal, VS Code integrated"
+    validations:
+      required: true
+  - type: textarea
+    id: hooklog
+    attributes:
+      label: hook.log tail (redacted)
+      description: "`tail -n 20 ${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/hook.log`"
+    validations:
+      required: false
