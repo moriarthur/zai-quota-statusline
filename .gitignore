@@ -1,3 +1,4 @@
 # test-suite artifacts (test.sh py-compiles the bundled jqsh parser)
 __pycache__/
 *.pyc
+strix_runs/
