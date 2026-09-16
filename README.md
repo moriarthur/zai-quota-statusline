@@ -1,27 +1,13 @@
 # zai-quota-statusline
 
 [![CI](https://github.com/moriarthur/zai-quota-statusline/actions/workflows/ci.yml/badge.svg)](https://github.com/moriarthur/zai-quota-statusline/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/moriarthur/zai-quota-statusline)](https://github.com/moriarthur/zai-quota-statusline/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Event-driven Z.AI / GLM quota monitoring for [Claude Code](https://claude.com/claude-code) —
-**no cron, no quota polling**. The cache refreshes the moment you submit a prompt and again
-when the turn finishes; the statusline reads the local cache and never calls the API on a
-schedule (the optional 1 s re-render reads the cache only).
-
-**Design goal:** the line should feel *native to Claude Code*. Everything lives in the CLI
-you already work in — a model chip with a usage-colored dot that **breathes while a turn is
-live** (like the native spinner), usage bars in a green → orange →
-red severity scale (xterm-256 cube colors, see below), context-left and
-session cost — visible in real time, with no manual refresh requests and no browser
-dashboard.
-
-> **Why 256-color palette codes?** Some terminal render paths (e.g. a TUI redrawing the
-> status line through a 256-color backend) quantize any truecolor to the xterm cube —
-> each channel snapped via `round(c/51)`. That rounding can push a dark red's green
-> channel *up* until it renders brighter than the orange tier, visually inverting
-> severity. Colors already on the cube are identity-mapped by such quantizers, so the
-> status line looks the same everywhere: the tier colors `38;5;65/173/131`, and the
-> busy dot breathing between a dim gray (`38;5;240`) and the tier color — explicit
-> `38;5;N` codes rather than SGR faint, another attribute render paths drop.
+Real-time Z.AI / GLM plan quota in [Claude Code](https://claude.com/claude-code)'s own
+status line. **Event-driven: no cron, no quota polling, no browser dashboard** — the
+cache refreshes the moment you submit a prompt and again when the turn finishes, and the
+status line reads a local cache file.
 
 <p align="center">
   <img src="docs/statusline-scenarios.png" width="100%" alt="zai-quota-statusline across one working day: the 5h bar fills green to orange to red, the 5h window resets and starts over, the 7d bar climbs, context-left and the session cost tick upward">
@@ -37,6 +23,140 @@ a mockup.</i></p>
 <p align="center"><i>While a turn is live the dot breathes — the hueless gray "off" end ↔ the
 tier color, one second a tone: a full cycle every 2 s, the fastest flicker the host's 1 s
 render floor allows. Idle, the dot rests on the tier color.</i></p>
+
+- **5h and 7d plan windows** — bar, percent used, time to reset, colored by severity
+  (green < 50 %, orange < 80 %, red ≥ 80 %)
+- **Context left** — filtered against Claude Code's transient phantom-100 % frames
+- **Session cost** — Claude Code's own list-price estimate (resets on `/clear`)
+- **A model chip whose dot breathes while a turn is live** — like the native spinner
+- Works on **macOS, Linux and WSL2**; no `jq` required; no Nerd Font required
+
+## The line, piece by piece
+
+```
+● GLM-5.3-Flash | 5h ━━━━━━──── 60% 2h 14m · 7d ━━━━━━━─── 77% 4d 3h · context left 38% · $5.10
+```
+
+| Piece | Meaning |
+|---|---|
+| `● model` | The chip. The dot's color is the current 5h severity; while a turn is live it breathes gray ↔ tier color |
+| `5h ▬ 60% 2h 14m` | 5-hour token window: usage bar, percent used, time until reset |
+| `7d ▬ 77% 4d 3h` | Weekly token window, same format |
+| `context left 38%` | Context window remaining; rises ≥ 10 points are held until confirmed (kills the phantom "100 %" flash) |
+| `$5.10` | Claude Code's client-side cost estimate for the session — **not** the Z.AI invoice |
+
+## Requirements & compatibility
+
+| | |
+|---|---|
+| **Platforms** | macOS, Linux, WSL2 (developed and tested on WSL2 + macOS). Native Windows is untested — use WSL |
+| **Runtime** | `bash` 3.2+ (stock macOS bash works — no bash-4 features), `curl` |
+| **JSON parser** | `jq` if present; otherwise the bundled `jqsh` fallback runs on `python3` (macOS: shipped with the Command Line Tools). Either one is enough |
+| **Claude Code** | Any version with plugin-marketplace support and `statusLine.refreshInterval` (verified against 2.1.x) |
+| **Terminals** | Any terminal Claude Code runs its UI in — Terminal.app, iTerm2, Windows Terminal, kitty, Alacritty, tmux, SSH, IDE-embedded terminals. Colors are explicit xterm-256 cube codes, so 256-color and truecolor render paths draw them identically (see the design note below) |
+| **Fonts** | Stock fonts only — `●`, `━`, `─` are common Unicode glyphs; no Nerd Font |
+| **IDEs** | The status line is a CLI feature: it appears wherever the interactive `claude` TUI runs, including the VS Code and JetBrains integrated terminals. Not applicable to claude.ai (web) |
+
+> **Why 256-color palette codes?** Some terminal render paths (e.g. a TUI redrawing the
+> status line through a 256-color backend) quantize any truecolor to the xterm cube —
+> each channel snapped via `round(c/51)`. That rounding can push a dark red's green
+> channel *up* until it renders brighter than the orange tier, visually inverting
+> severity. Colors already on the cube are identity-mapped by such quantizers, so the
+> status line looks the same everywhere: the tier colors `38;5;65/173/131`, and the
+> busy dot breathing between a dim gray (`38;5;240`) and the tier color — explicit
+> `38;5;N` codes rather than SGR faint, another attribute render paths drop.
+
+## Install
+
+Inside Claude Code (or from the shell — both do the same):
+
+```bash
+claude plugin marketplace add moriarthur/zai-quota-statusline
+claude plugin install zai-quota-statusline@moriarthur
+```
+
+```
+/plugin marketplace add moriarthur/zai-quota-statusline
+/plugin install zai-quota-statusline@moriarthur
+```
+
+**Step 1 — credentials.** Point a credentials file at your Z.AI token:
+
+```bash
+mkdir -p ~/.claude/zaiquota
+cat > ~/.claude/zaiquota/config.env <<'EOF'
+ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+ANTHROPIC_AUTH_TOKEN=<your-token>
+EOF
+chmod 600 ~/.claude/zaiquota/config.env
+```
+
+The environment takes precedence: if `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`
+are already exported where Claude Code runs, the file is optional — the fetcher reads
+the environment first and `config.env` second (the file exists for launch contexts
+that inherit no shell environment, such as launchd or cron, and is parsed, never
+executed). The statusline's self-heal arms on either source.
+
+**Step 2 — the status line.** Add the block to `~/.claude/settings.json` (plugins can't
+set this field — it's one line):
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash $HOME/.claude/zaiquota/zai-statusline.sh",
+    "padding": 0,
+    "refreshInterval": 1
+  }
+}
+```
+
+`refreshInterval` (seconds) re-runs the statusline command on a steady beat — this is
+the documented Claude Code setting for periodic statusline updates, minimum 1 s. It is
+what lets the dot breathe (one toggle per beat — the fastest the host can draw) and what
+repaints the line when the startup cache lands a moment after the first render (see
+step 3). Quota **fetching** stays event-driven — the timer only re-renders the line from
+the cache, it never calls the API. Without it the line only re-renders on conversation
+events: a `quota n/a` drawn before the cache exists would sit there until your first
+prompt.
+
+**Step 3 — restart Claude Code.** On session start the plugin syncs its scripts to the
+stable path `~/.claude/zaiquota/` and fires the first quota fetch in the background —
+startup never waits on the network. Plugin **updates** propagate on their own: on every
+prompt submit and turn end a parity check re-syncs the stable path if the installed
+plugin's scripts have moved ahead of it, so after `/plugin update` (and
+`/reload-plugins` in the current session) the very next prompt brings the copy current —
+no restart, no manual sync. The first render can land before the startup fetch returns:
+with `refreshInterval: 1` from step 2 the line repaints within a second or two, and if
+the fetch never lands the statusline nudges its own throttled retry (see
+[Troubleshooting](#troubleshooting)).
+
+### Platform notes
+
+- **macOS** — nothing to install first: no `jq` on stock macOS, so the bundled `jqsh`
+  parses (python3 comes with the Command Line Tools; `brew install jq` is the fastest
+  option but is optional). Start Claude Code from any terminal — Terminal.app, iTerm2,
+  an IDE's integrated terminal; they all read the same `~/.claude/settings.json` unless
+  `CLAUDE_CONFIG_DIR` or `HOME` differ.
+- **Linux** — `jq` comes from the distro repository (`apt install jq`, `dnf install jq`,
+  `pacman -S jq`); python3 is the automatic fallback if you skip it.
+- **WSL2** — same as Linux; the line renders identically in Windows Terminal.
+- **Installing and enabling the plugin alone does not create the `statusLine` block** —
+  plugins register hooks, but Claude Code owns the statusline setting (step 2).
+  `/zai-quota-statusline:refresh` only fetches the quota cache; it cannot make a
+  statusline appear.
+
+> **Custom base directory?** The base directory resolves as
+> `${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}`: an explicit
+> `export ZAI_QUOTA_DIR=/path/to/dir` wins; otherwise it follows `CLAUDE_CONFIG_DIR`
+> (a relocated Claude config root); otherwise `~/.claude/zaiquota`. Export your var of
+> choice in the shell profile and point the status line at the same place:
+> `"command": "bash ${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/zai-statusline.sh"`.
+> Everything else — sync, hooks, `/refresh` — picks the directory up from the environment.
+>
+> **Already using `CLAUDE_CONFIG_DIR`?** Move your existing data once so the plugin
+> finds its token and cache at the new default:
+> `mv ~/.claude/zaiquota "$CLAUDE_CONFIG_DIR/zaiquota"`.
 
 ## How it works
 
@@ -72,8 +192,8 @@ switches itself off. And when the cache file is missing altogether — a session
 never ran or was killed — the next render nudges the same throttled background fetch on
 its own, but only while credentials are discoverable — a `config.env` on disk or
 `ANTHROPIC_AUTH_TOKEN` in the environment (the fetcher's own precedence) — and only when
-the cache is truly absent: a
-present but unparsable cache (an empty or unsupported quota response) is left alone.
+the cache is truly absent: a present but unparsable cache (an empty or unsupported quota
+response) is left alone.
 
 The context-left number is filtered too. Claude Code's payload computes
 `remaining_percentage` as `100 − used_percentage` in one expression — the statusline
@@ -88,127 +208,13 @@ The dollar figure is `cost.total_cost_usd` — Claude Code's own client-side lis
 estimate for the session (reset by `/clear`), **not** the Z.AI invoice. A value that is
 not a number, or a negative one, hides the cost segment instead of posing as `$0.00`.
 
-## Requirements
-
-- `bash` 3.2+, `curl`, and a JSON parser: `jq` — stock on Linux and WSL. macOS
-  ships no jq; there the plugin automatically falls back to its bundled
-  `jqsh` parser (runs on `python3` — provided by the Command Line Tools, or
-  `brew install python`). `brew install jq` remains the fastest option but is
-  not required
-- No platform-specific locking tools: the fetch lock is a PID-symlink claimed
-  with a single atomic `symlink(2)` call, so Linux, WSL and macOS behave
-  identically; on Windows use WSL
-
-## Install (plugin)
-
-```bash
-claude plugin marketplace add moriarthur/zai-quota-statusline
-claude plugin install zai-quota-statusline@moriarthur
-```
-
-or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`, then
-`/plugin install zai-quota-statusline@moriarthur`.
-
-1. Point the credentials file at your Z.AI token (`chmod 600`!):
-
-   ```bash
-   mkdir -p ~/.claude/zaiquota
-   cat > ~/.claude/zaiquota/config.env <<'EOF'
-   ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
-   ANTHROPIC_AUTH_TOKEN=<your-token>
-   EOF
-   chmod 600 ~/.claude/zaiquota/config.env
-   ```
-
-   The environment takes precedence: if `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`
-   are already exported where Claude Code runs, the file is optional — the fetcher reads
-   the environment first and `config.env` second (the file exists for launch contexts
-   that inherit no shell environment, such as launchd or cron, and is parsed, never
-   executed). The statusline's self-heal arms on either source.
-
-2. Add the status line to `~/.claude/settings.json` (plugins can't set this field — it's
-   one line):
-
-   ```json
-   {
-     "statusLine": {
-       "type": "command",
-       "command": "bash $HOME/.claude/zaiquota/zai-statusline.sh",
-       "padding": 0,
-       "refreshInterval": 1
-     }
-   }
-   ```
-
-   `refreshInterval` (seconds) re-runs the statusline command on a steady beat — this is
-   the documented Claude Code setting for periodic statusline updates, minimum 1 s. It is
-   what lets the dot breathe (while a turn is live it flickers between a dim gray and
-   the tier color — one second each, a full cycle every two seconds — one toggle per
-   beat at this render floor, the fastest the host can draw) and what repaints the
-   line when the startup cache lands a moment after the
-   first render (see step 3). Quota **fetching** stays event-driven — the timer only
-   re-renders the line from the cache, it never calls the API. Without it the line only
-   re-renders on conversation events: a `quota n/a` drawn before the cache exists would
-   sit there until your first prompt.
-
-3. Restart Claude Code. On session start the plugin syncs its scripts to the stable path
-   `~/.claude/zaiquota/` and fires the first quota fetch in the background — startup never
-   waits on the network. Plugin **updates** propagate on their own: on every prompt submit
-   and turn end a parity check re-syncs the stable path if the installed plugin's scripts
-   have moved ahead of it, so after `/plugin update` (and `/reload-plugins` in the current
-   session) the very next prompt brings the copy current — no restart, no manual sync. The
-   first render can land before the startup fetch returns: with `refreshInterval: 1` from
-   step 2 the line repaints within a second or two, and if the fetch never lands the
-   statusline nudges its own throttled retry (see [Troubleshooting](#troubleshooting)).
-
-### macOS Terminal
-
-Claude Code uses the same plugin and settings from macOS Terminal, VS Code's integrated
-terminal, and other terminals. They can differ only if their environment points Claude at
-another config root via `CLAUDE_CONFIG_DIR`, or if `HOME` is different.
-
-Nothing needs installing first: macOS ships no `jq`, so the plugin's scripts parse with
-the bundled `jqsh` (a jq-subset interpreter run by `python3` — installed with the
-Command Line Tools, or `brew install python`). `brew install jq` is still the fastest
-parser if you have it, but it is optional. Start Claude Code from the macOS Terminal and make sure `~/.claude/settings.json`
-contains the `statusLine` block from step 2. Installing and enabling the plugin alone does
-not create that block — plugins can register hooks, but Claude Code owns the statusline
-setting. `/zai-quota-statusline:refresh` only fetches the quota cache; it cannot make a
-statusline appear. If `quota n/a` survives the launch itself, see
-[Troubleshooting](#troubleshooting).
-
-The chip is the same plain `● model` on every platform — macOS Terminal, VS Code and
-JetBrains integrated terminals, tmux, SSH — with no Nerd Font prerequisite: it uses
-common Unicode glyphs (`●`, `━`, `─`) found in stock terminal fonts. The former
-pill-with-caps form is gone: rounded caps rendered as replacement glyphs wherever the
-font was missing, which made them the one glyph-dependent element left in the line.
-
-Useful checks from the same Terminal where Claude is started:
-
-```bash
-echo "HOME=$HOME"
-echo "CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR:-<unset>}"
-command -v jq >/dev/null && jq --version || echo "no jq — the bundled jqsh (python3) fallback parses"
-jq '.statusLine' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" 2>/dev/null || python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("statusLine"))' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
-ls -l "${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/zai-statusline.sh"
-```
-
-If the last two commands point to a different location than the one used in the
-`statusLine.command`, update both paths to the same base directory and restart Claude Code.
-
-> **Custom base directory?** The base directory resolves as
-> `${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}`: an explicit
-> `export ZAI_QUOTA_DIR=/path/to/dir` wins; otherwise it follows `CLAUDE_CONFIG_DIR`
-> (a relocated Claude config root); otherwise `~/.claude/zaiquota`. Export your var of
-> choice in the shell profile and point the status line at the same place:
-> `"command": "bash ${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/zai-statusline.sh"`.
-> Everything else — sync, hooks, `/refresh` — picks the directory up from the environment.
->
-> **Already using `CLAUDE_CONFIG_DIR` (since 0.1.12)?** Move your existing data once so
-> the plugin finds its token and cache at the new default:
-> `mv ~/.claude/zaiquota "$CLAUDE_CONFIG_DIR/zaiquota"`.
-
 ## Troubleshooting
+
+**Known limitation, up front:** the quota endpoint is an internal, undocumented Z.AI
+API (see [How it works](#how-it-works)) — the one external dependency of this plugin.
+If a previously working line one day freezes on `quota n/a` or stale numbers, an
+endpoint change is the first thing to suspect: check `hook.log` (step 2 below), then
+the issue tracker.
 
 **`quota n/a` right after launch, until the first prompt or `/zai-quota-statusline:refresh`.**
 The startup fetch wrote the cache a moment after Claude Code's first render — the line
@@ -225,9 +231,9 @@ just never got redrawn. Work through these in order:
 3. Confirm the cache is there:
    `ls -l "${ZAI_QUOTA_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/zaiquota}/quota.cache"`.
    If the cache file is missing — or holds a payload with no usable windows — while
-   `config.env` exists, the statusline nudges one throttled background fetch itself
-   (same stamp and `ZAI_ROLL_MIN` window as the rollover nudge), so a missed session
-   hook self-heals on a later render. The fetcher, for its part, never stores an
+   credentials are discoverable, the statusline nudges one throttled background fetch
+   itself (same stamp and `ZAI_ROLL_MIN` window as the rollover nudge), so a missed
+   session hook self-heals on a later render. The fetcher, for its part, never stores an
    empty `limits` snapshot: if the API answers mid-window-swap with `limits: []`, the
    previous cache stays on screen and the very next successful fetch refreshes it. In
    the rare case where the hook process died after writing its dedup state but before
