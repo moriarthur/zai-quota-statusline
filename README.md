@@ -70,7 +70,9 @@ fetch in the background — throttled to one attempt per `ZAI_ROLL_MIN` seconds 
 60, stamp next to the cache). The fresh cache carries the new windows and the nudge
 switches itself off. And when the cache file is missing altogether — a session hook that
 never ran or was killed — the next render nudges the same throttled background fetch on
-its own, but only while `config.env` exists and only when the cache is truly absent: a
+its own, but only while credentials are discoverable — a `config.env` on disk or
+`ANTHROPIC_AUTH_TOKEN` in the environment (the fetcher's own precedence) — and only when
+the cache is truly absent: a
 present but unparsable cache (an empty or unsupported quota response) is left alone.
 
 The context-left number is filtered too. Claude Code's payload computes
@@ -117,6 +119,12 @@ or inside Claude Code: `/plugin marketplace add moriarthur/zai-quota-statusline`
    EOF
    chmod 600 ~/.claude/zaiquota/config.env
    ```
+
+   The environment takes precedence: if `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`
+   are already exported where Claude Code runs, the file is optional — the fetcher reads
+   the environment first and `config.env` second (the file exists for launch contexts
+   that inherit no shell environment, such as launchd or cron, and is parsed, never
+   executed). The statusline's self-heal arms on either source.
 
 2. Add the status line to `~/.claude/settings.json` (plugins can't set this field — it's
    one line):
@@ -225,9 +233,11 @@ just never got redrawn. Work through these in order:
    the rare case where the hook process died after writing its dedup state but before
    fetching, `quota n/a` can persist for up to `ZAI_ROLL_MIN` seconds — a minute at
    the default, while the line keeps re-rendering.
-4. If the cache still never appears, check `config.env`: a regular file owned by you
-   containing `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` (permissions are tightened
-   to `600` automatically on every fetch). Fetch errors explain themselves in `hook.log`.
+4. If the cache still never appears, check the credentials: either a `config.env` that is
+   a regular file owned by you containing `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`
+   (permissions are tightened to `600` automatically on every fetch), or the same two
+   variables exported in the environment Claude Code runs in — the fetcher reads the
+   environment first, the file second. Fetch errors explain themselves in `hook.log`.
 
 ## Manual install (no plugin)
 
@@ -282,8 +292,10 @@ executable, create `config.env` as above, then merge into `~/.claude/settings.js
 
 ## Security
 
-- The token lives only in `~/.claude/zaiquota/config.env` — create it with `chmod 600`
-  (the install steps above do this). It is read by `quota-fetch.sh` and nothing else.
+- The token lives on disk only in `~/.claude/zaiquota/config.env` — create it with
+  `chmod 600` (the install steps above do this). It is read by `quota-fetch.sh` and
+  nothing else. Exported `ANTHROPIC_*` environment variables take precedence and are
+  never written anywhere by the plugin.
 - `config.env` is **parsed, never executed** (plain `KEY=VALUE` lines): a tampered file
   cannot run code. It must be a regular file owned by you, and its permissions are
   tightened to `0600` automatically on every fetch.

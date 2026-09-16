@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.22 — 2026-09-16
+Credentials now follow one resolution order everywhere: the environment first,
+`config.env` second (that order always existed in the fetcher — the docs and the
+self-heal gate just never said so). The statusline's self-heal arms on either
+source, so an install that only exports `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_BASE_URL`
+(no `config.env`) now self-heals a lost or window-less cache like any other, the
+fetcher's error messages mention both places, and the README states the precedence.
+
 ## 0.1.21 — 2026-09-16
 The breath quickens to the host's render floor: the dot toggles every beat —
 the dim gray for one second, the tier color for the next, a full cycle every

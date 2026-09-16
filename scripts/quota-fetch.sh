@@ -70,11 +70,11 @@ fi
 
 # ---- credentials required ----
 if [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
-  echo "ERROR: ANTHROPIC_AUTH_TOKEN is not set (add it to $DIR/config.env)" >&2
+  echo "ERROR: ANTHROPIC_AUTH_TOKEN is not set (export it or add it to $DIR/config.env)" >&2
   exit 1
 fi
 if [ -z "$ANTHROPIC_BASE_URL" ]; then
-  echo "ERROR: ANTHROPIC_BASE_URL is not set (add it to $DIR/config.env)" >&2
+  echo "ERROR: ANTHROPIC_BASE_URL is not set (export it or add it to $DIR/config.env)" >&2
   exit 1
 fi
 

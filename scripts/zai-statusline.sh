@@ -188,9 +188,12 @@ roll=0
 # shape that parses to nothing looks identical here. Only a fresh fetch can fix
 # such a render, so an absent OR window-less cache nudges — the shared stamp
 # keeps even a permanently empty shape at one GET per ZAI_ROLL_MIN — and only
-# with credentials on disk, so an unconfigured install never spawns. Mutually
+# with credentials discoverable — config.env on disk, or ANTHROPIC_AUTH_TOKEN
+# in this process's environment, the fetcher's own resolution order (env first,
+# file fallback) — so an unconfigured install never spawns. Mutually
 # exclusive with the rollover trigger above (that one needs a parsed window).
-if [ -f "$DIR/config.env" ] && { [ ! -f "$CACHE" ] || [ "$h5r" -eq 0 ]; }; then
+if { [ -f "$DIR/config.env" ] || [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; } \
+   && { [ ! -f "$CACHE" ] || [ "$h5r" -eq 0 ]; }; then
   nudge
 fi
 

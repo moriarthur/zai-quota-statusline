@@ -1,7 +1,7 @@
 {
   "name": "zai-quota-statusline",
   "description": "Native-feeling Z.AI / GLM quota statusline for Claude Code — real-time 5h/7d limits, context-left and session cost in Claude's brand palette. Event-driven hooks, no cron, no quota polling.",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "author": {
     "name": "Galart",
     "url": "https://github.com/moriarthur"

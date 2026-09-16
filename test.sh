@@ -591,7 +591,7 @@ rm -rf "$TH"
 # forever on its own. Both mean only a fresh fetch can fix the render: with
 # credentials on disk they nudge one background --force fetch (same stamp/throttle
 # as the rollover nudge — a permanently empty shape costs one GET per minute, not
-# a loop); an install without config.env never spawns. config.env points at a
+# a loop); an install with no discoverable credentials never spawns. config.env points at a
 # closed loopback port, so the spawned fetch fails instantly and never touches
 # the network from the suite.
 NH=$(mktemp -d)
@@ -613,9 +613,9 @@ fi
 NH2=$(mktemp -d)
 run_sb "$NH2"
 if [ ! -f "$NH2/.rollrefresh" ]; then
-  ok "self-heal: no config.env stays quiet"
+  ok "self-heal: no credentials at all stay quiet"
 else
-  bad "self-heal: no config.env stays quiet"
+  bad "self-heal: no credentials at all stay quiet"
 fi
 NH3=$(mktemp -d)
 printf 'not json at all' >"$NH3/quota.cache"
@@ -638,9 +638,9 @@ NH4=$(mktemp -d)
 jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[]}}' >"$NH4/quota.cache"
 run_sb "$NH4"
 if [ ! -f "$NH4/.rollrefresh" ]; then
-  ok "self-heal: shape-valid but empty cache stays quiet without config.env"
+  ok "self-heal: shape-valid but empty cache stays quiet without credentials"
 else
-  bad "self-heal: shape-valid but empty cache stays quiet without config.env"
+  bad "self-heal: shape-valid but empty cache stays quiet without credentials"
 fi
 NH5=$(mktemp -d)
 jq -n --argjson ts "$NOW" '{fetched_at:$ts, data:{limits:[]}}' >"$NH5/quota.cache"
@@ -651,6 +651,20 @@ if [ -f "$NH5/.rollrefresh" ]; then
 else
   bad "self-heal: a shape-valid empty cache nudges (the 0.1.16-era poison)"
 fi
+# env-only install (0.1.22): credentials in the environment alone arm the
+# self-heal exactly like a config.env on disk — the gate must follow the
+# fetcher's own resolution order (env first, file fallback). The dead loopback
+# URL keeps any spawned fetch off the network.
+NHE=$(mktemp -d)
+printf '%s' "$IN" | env -u CLAUDE_CONFIG_DIR -u ZAI_SB_CACHE \
+  ANTHROPIC_AUTH_TOKEN=dummy-test-token ANTHROPIC_BASE_URL=http://127.0.0.1:1 \
+  ZAI_QUOTA_DIR="$NHE" bash scripts/zai-statusline.sh >/dev/null 2>&1
+if [ -f "$NHE/.rollrefresh" ]; then
+  ok "self-heal: env-only credentials (no config.env) arm the nudge"
+else
+  bad "self-heal: env-only credentials (no config.env) arm the nudge"
+fi
+rm -rf "$NHE"
 rm -rf "$NH" "$NH2" "$NH3" "$NH4" "$NH5"
 
 # ---- statusline: the nudge claim is atomic across parallel renders ----
