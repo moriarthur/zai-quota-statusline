@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0 — 2026-09-16
+
+First stable release. The line does what it says — real-time 5h/7d Z.AI plan
+windows with severity-colored bars, a model chip whose dot breathes while a turn
+is live (one toggle per second, the host's render floor), context-left with
+placeholder-proof filtering (a literal 100 is never shown over a real value),
+session cost, self-healing cache, event-driven fetches with no polling — and it
+has been hardened under live use and outside audits: the token rides to curl in
+a stdin-fed header (invisible to `ps`), `config.env` is parsed never executed,
+secrets are redacted from every log path, and CI runs 113 offline checks with
+SHA-pinned actions.
+
+The 0.1.x releases below are the development line — two days of building in the
+open, kept for history, links and rollback.
+
 ## 0.1.23 — 2026-09-16
 The context-left phantom is dead for good. The payload's streaming placeholder
 (`used_percentage: 0`) turned out to persist for whole seconds — longer than the
